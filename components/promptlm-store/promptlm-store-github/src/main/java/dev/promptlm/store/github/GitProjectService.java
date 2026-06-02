@@ -19,6 +19,7 @@ package dev.promptlm.store.github;
 import dev.promptlm.domain.AppContext;
 import dev.promptlm.domain.events.ProjectCreatedEvent;
 import dev.promptlm.domain.projectspec.ProjectSpec;
+import dev.promptlm.repository.template.ArtifactCoordinateSanitizer;
 import dev.promptlm.repository.template.RepositoryTemplateExtractor;
 import dev.promptlm.repository.template.TemplateContext;
 import dev.promptlm.repository.template.TemplateSubstitutionEngine;
@@ -99,12 +100,23 @@ public class GitProjectService implements ProjectService {
 
         git.createRepository(repoPath, gitCloneUrl);
 
+        // Derive artifact-coordinate defaults from owner/repo so the rolled-out repository
+        // never ships literal REPLACE_ME_* sentinels in pom.xml / .promptlm/artifacts.toml.
+        // Users can still override these by editing the generated files. See issue #323.
+        String repo = ownerAndRepo.repo();
+        String owner = ownerAndRepo.owner();
         TemplateContext templateContext = new TemplateContext(
-                ownerAndRepo.repo(),
-                ownerAndRepo.owner(),
+                repo,
+                owner,
                 DEFAULT_PROJECT_DESCRIPTION,
                 Instant.now(),
-                TemplateSubstitutionEngine.BUILD_GENERATOR_VERSION
+                TemplateSubstitutionEngine.BUILD_GENERATOR_VERSION,
+                ArtifactCoordinateSanitizer.projectName(repo),
+                ArtifactCoordinateSanitizer.mavenGroupId(owner),
+                ArtifactCoordinateSanitizer.mavenArtifactId(repo),
+                ArtifactCoordinateSanitizer.pythonDistributionName(repo),
+                ArtifactCoordinateSanitizer.pythonImportName(repo),
+                ArtifactCoordinateSanitizer.npmPackageName(repo)
         );
         repositoryTemplateExtractor.extractTo(repoPath, templateContext);
 

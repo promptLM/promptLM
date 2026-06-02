@@ -1,21 +1,21 @@
 [project]
-name = "REPLACE_ME_project_name"
+name = "{{PROJECT_NAME}}"
 version = "1.0.0"
 # Optional: empty or missing => no artifact builds
 # targets = ["java", "python", "js"]
 
 [artifacts.java]
-group_id = "REPLACE_ME_group_id"
-artifact_id = "REPLACE_ME_artifact_id"
+group_id = "{{MAVEN_GROUP_ID}}"
+artifact_id = "{{MAVEN_ARTIFACT_ID}}"
 packaging = "jar"
 
 [artifacts.python]
-distribution_name = "REPLACE_ME_python_distribution_name"
-import_name = "REPLACE_ME_python_import_name"
+distribution_name = "{{PYTHON_DISTRIBUTION_NAME}}"
+import_name = "{{PYTHON_IMPORT_NAME}}"
 build_types = ["wheel", "sdist"]
 
 [artifacts.js]
-package_name = "REPLACE_ME_npm_package_name"
+package_name = "{{NPM_PACKAGE_NAME}}"
 module_type = "commonjs"
 
 [deploy]

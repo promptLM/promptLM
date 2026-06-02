@@ -23,7 +23,6 @@
                 <include>.github/workflows/deploy-artifactory.yml</include>
                 <include>.github/workflows/release.yml</include>
                 <include>.github/workflows/validate.yml</include>
-                <include>tools/release/**</include>
             </includes>
         </fileSet>
         <fileSet>
@@ -33,6 +32,7 @@
             <includes>
                 <include>scripts/validate-prompts.sh</include>
                 <include>scripts/package-prompts.sh</include>
+                <include>tools/release/**</include>
             </includes>
         </fileSet>
     </fileSets>

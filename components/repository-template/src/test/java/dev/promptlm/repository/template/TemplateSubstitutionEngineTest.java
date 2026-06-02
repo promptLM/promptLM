@@ -145,4 +145,50 @@ class TemplateSubstitutionEngineTest {
         assertThat(engine.isTextEntry("prompts/.gitignore")).isFalse();
         assertThat(engine.isTextEntry("Makefile")).isFalse();
     }
+
+    @Test
+    void substitutesAllArtifactCoordinateTokens() {
+        // Use the canonical 11-arg constructor so every artifact-coordinate token can be
+        // verified independently of the back-compat derivation rules.
+        TemplateContext ctx = new TemplateContext(
+                "my-prompts",
+                "acme-corp",
+                "desc",
+                Instant.parse("2026-05-17T09:30:00Z"),
+                "1.0.0",
+                "My Prompts",
+                "io.github.acme-corp",
+                "my-prompts",
+                "my-prompts",
+                "my_prompts",
+                "my-prompts");
+        byte[] source = ("project={{PROJECT_NAME}}\n"
+                + "g={{MAVEN_GROUP_ID}}\n"
+                + "a={{MAVEN_ARTIFACT_ID}}\n"
+                + "pyd={{PYTHON_DISTRIBUTION_NAME}}\n"
+                + "pyi={{PYTHON_IMPORT_NAME}}\n"
+                + "npm={{NPM_PACKAGE_NAME}}\n").getBytes(StandardCharsets.UTF_8);
+
+        String result = new String(engine.substitute("artifacts.toml", source, ctx), StandardCharsets.UTF_8);
+
+        assertThat(result).isEqualTo(""
+                + "project=My Prompts\n"
+                + "g=io.github.acme-corp\n"
+                + "a=my-prompts\n"
+                + "pyd=my-prompts\n"
+                + "pyi=my_prompts\n"
+                + "npm=my-prompts\n");
+    }
+
+    @Test
+    void backCompatConstructorDerivesArtifactTokensFromOwnerAndRepo() {
+        TemplateContext ctx = new TemplateContext(
+                "My-Prompts", "ACME-Corp", "desc",
+                Instant.parse("2026-05-17T09:30:00Z"), "1.0.0");
+        byte[] source = "g={{MAVEN_GROUP_ID}} a={{MAVEN_ARTIFACT_ID}}".getBytes(StandardCharsets.UTF_8);
+
+        String result = new String(engine.substitute("artifacts.toml", source, ctx), StandardCharsets.UTF_8);
+
+        assertThat(result).isEqualTo("g=io.github.acme-corp a=my-prompts");
+    }
 }

@@ -17,17 +17,20 @@
 package dev.promptlm.store.github;
 
 import dev.promptlm.repository.template.TemplateContext;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -121,6 +124,100 @@ class ZipFileRepositoryTemplateExtractorSubstitutionTest {
         assertThat(metadata).doesNotContain("2025-01-19T22:42:35Z");
         assertThat(metadata).doesNotContain("0.1.0-SNAPSHOT");
         assertThat(metadata).doesNotContain("{{");
+    }
+
+    /**
+     * Regression guard for issue #323: the rolled-out repository must contain no literal
+     * {@code REPLACE_ME_} sentinels and must substitute the artifact-coordinate tokens
+     * derived from owner/repo into {@code pom.xml} and {@code .promptlm/artifacts.toml}.
+     */
+    @Test
+    void noFileContainsReplaceMeSentinelAndPomHasSubstitutedCoordinates(@TempDir Path tempDir) throws IOException {
+        ZipFileRepositoryTemplateExtractor extractor = new ZipFileRepositoryTemplateExtractor();
+        // Mirror what GitProjectService passes: derived coordinates from owner+repo.
+        TemplateContext context = new TemplateContext(
+                "my-prompts",
+                "ACME-Corp",
+                "issue-323 regression guard",
+                Instant.parse("2026-05-17T01:23:45Z"),
+                "9.9.9");
+
+        extractor.extractTo(tempDir, context);
+
+        String pom = Files.readString(tempDir.resolve("pom.xml"), StandardCharsets.UTF_8);
+        assertThat(pom).contains("<groupId>io.github.acme-corp</groupId>");
+        assertThat(pom).contains("<artifactId>my-prompts</artifactId>");
+
+        String artifactsToml = Files.readString(tempDir.resolve(".promptlm/artifacts.toml"), StandardCharsets.UTF_8);
+        assertThat(artifactsToml).contains("group_id = \"io.github.acme-corp\"");
+        assertThat(artifactsToml).contains("artifact_id = \"my-prompts\"");
+        assertThat(artifactsToml).contains("distribution_name = \"my-prompts\"");
+        assertThat(artifactsToml).contains("import_name = \"my_prompts\"");
+        assertThat(artifactsToml).contains("package_name = \"my-prompts\"");
+
+        // No file under the extracted tree should contain a REPLACE_ME_ literal in a place
+        // where downstream tooling would consume it as a real value.
+        //
+        // Known-legitimate references (allow-listed):
+        //   - .promptlm/artifacts.toml: sample deploy-profile URLs (Artifactory /
+        //     GitHub-packages / custom) — P1 follow-up.
+        //   - .github/artifactory-config.yml: REFERENCE ONLY per issue #325 (P1).
+        //   - scripts/package-prompts.sh: documents in a comment that
+        //     REPLACE_ME_* values trigger a fallback — describing the string, not
+        //     using it as a coordinate.
+        Set<String> allowList = Set.of(
+                ".promptlm/artifacts.toml",
+                ".github/artifactory-config.yml",
+                "scripts/package-prompts.sh");
+        try (Stream<Path> walk = Files.walk(tempDir)) {
+            walk.filter(Files::isRegularFile)
+                    .filter(p -> !allowList.contains(
+                            tempDir.relativize(p).toString().replace('\\', '/')))
+                    .forEach(p -> {
+                        try {
+                            String content = Files.readString(p, StandardCharsets.UTF_8);
+                            assertThat(content)
+                                    .as("Unexpected REPLACE_ME_ sentinel left in %s", tempDir.relativize(p))
+                                    .doesNotContain("REPLACE_ME_");
+                        } catch (IOException e) {
+                            // Binary file (e.g. images) — readString would throw MalformedInput.
+                            // Treat as no-op: the substring REPLACE_ME_ in a binary is implausible.
+                        }
+                    });
+        }
+    }
+
+    /**
+     * Regression guard for issue #323: release scripts must be extracted with the
+     * executable bit set so the generated CI workflows can invoke
+     * {@code ./tools/release/build-artifacts} without "Permission denied".
+     */
+    @Test
+    void releaseScriptsAreExecutableOnPosix(@TempDir Path tempDir) throws IOException {
+        Assumptions.assumeTrue(
+                FileSystems.getDefault().supportedFileAttributeViews().contains("posix"),
+                "POSIX permissions are not supported on this filesystem");
+
+        ZipFileRepositoryTemplateExtractor extractor = new ZipFileRepositoryTemplateExtractor();
+        TemplateContext context = new TemplateContext(
+                "my-prompts",
+                "ACME-Corp",
+                "issue-323 exec-bit regression guard",
+                Instant.parse("2026-05-17T01:23:45Z"),
+                "9.9.9");
+
+        extractor.extractTo(tempDir, context);
+
+        Path buildArtifacts = tempDir.resolve("tools/release/build-artifacts");
+        Path publishArtifacts = tempDir.resolve("tools/release/publish-artifacts");
+        assertThat(buildArtifacts).exists();
+        assertThat(publishArtifacts).exists();
+        assertThat(Files.isExecutable(buildArtifacts))
+                .as("tools/release/build-artifacts must be executable after extraction (regression guard for #323)")
+                .isTrue();
+        assertThat(Files.isExecutable(publishArtifacts))
+                .as("tools/release/publish-artifacts must be executable after extraction (regression guard for #323)")
+                .isTrue();
     }
 
     private static List<Path> collectTextFiles(Path root) throws IOException {
