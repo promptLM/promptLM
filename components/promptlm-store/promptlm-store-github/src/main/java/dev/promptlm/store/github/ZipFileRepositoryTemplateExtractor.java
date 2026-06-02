@@ -29,13 +29,18 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
@@ -81,6 +86,21 @@ public class ZipFileRepositoryTemplateExtractor implements RepositoryTemplateExt
         this.substitutionEngine = substitutionEngine;
     }
 
+    /**
+     * Path prefixes/suffixes whose entries must be made executable in the extracted
+     * working tree. These are the only files in the shipped template that the generated
+     * CI workflows invoke as scripts (e.g. {@code ./tools/release/build-artifacts}); if
+     * any of them lands without the executable bit the workflow fails with a confusing
+     * "Permission denied" error.
+     *
+     * <p>This list is the source of truth for the regression guard added in issue #323 —
+     * if a new shell script is added to the template, register it here too.
+     */
+    private static final List<Pattern> EXECUTABLE_PATH_PATTERNS = List.of(
+            Pattern.compile("^tools/release/[^/]+$"),
+            Pattern.compile("^scripts/[^/]+\\.sh$")
+    );
+
     @Override
     public void extractTo(Path repoPath, TemplateContext context) {
         Objects.requireNonNull(context, "context");
@@ -88,6 +108,9 @@ public class ZipFileRepositoryTemplateExtractor implements RepositoryTemplateExt
         Map<String, byte[]> entries = readAllEntries();
         boolean releaseEnabled = isReleaseEnabled(entries.get(CONFIG_FILE_NAME));
         log.debug("Repository template release.enabled resolved to {}", releaseEnabled);
+
+        boolean posixSupported = FileSystems.getDefault()
+                .supportedFileAttributeViews().contains("posix");
 
         try {
             for (Map.Entry<String, byte[]> entry : entries.entrySet()) {
@@ -103,6 +126,9 @@ public class ZipFileRepositoryTemplateExtractor implements RepositoryTemplateExt
                     payload = substitutionEngine.substitute(name, payload, context);
                 }
                 Files.write(targetPath, payload);
+                if (posixSupported) {
+                    applyPosixMode(targetPath, name);
+                }
             }
             log.debug("Successfully extracted repository template to: {}", repoPath);
         } catch (IOException e) {
@@ -129,6 +155,56 @@ public class ZipFileRepositoryTemplateExtractor implements RepositoryTemplateExt
             throw new RuntimeException("Failed to read repository template archive", e);
         }
         return entries;
+    }
+
+    /**
+     * Apply a sensible POSIX mode to the extracted file. We cannot reliably read the
+     * mode from the {@code java.util.zip.ZipInputStream} API in JDK 21 (the external
+     * attributes field of {@link ZipEntry} is package-private and only populated when
+     * reading via {@code ZipFile} random-access), so we use a deterministic
+     * path-pattern heuristic instead: entries under {@code tools/release/} and
+     * {@code scripts/*.sh} get {@code 0755}; everything else gets {@code 0644}. This
+     * mirrors the {@code fileMode} pinning in {@code src/assembly/repo-template.xml}
+     * which is the source of truth for the shipped archive.
+     *
+     * <p>Failures to apply the mode are logged at debug and never propagated — losing
+     * the executable bit is a workflow regression, not a reason to abort the rollout.
+     */
+    static void applyPosixMode(Path targetPath, String entryName) {
+        int mode = isExecutableEntry(entryName) ? 0755 : 0644;
+        try {
+            Files.setPosixFilePermissions(targetPath, fromMode(mode));
+        } catch (IOException | UnsupportedOperationException e) {
+            log.debug("Failed to apply POSIX mode {} to {}: {}",
+                    Integer.toOctalString(mode), targetPath, e.getMessage());
+        }
+    }
+
+    static boolean isExecutableEntry(String entryName) {
+        if (entryName == null) {
+            return false;
+        }
+        String normalized = entryName.replace('\\', '/').toLowerCase(Locale.ROOT);
+        for (Pattern p : EXECUTABLE_PATH_PATTERNS) {
+            if (p.matcher(normalized).matches()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static Set<PosixFilePermission> fromMode(int mode) {
+        EnumSet<PosixFilePermission> perms = EnumSet.noneOf(PosixFilePermission.class);
+        if ((mode & 0400) != 0) perms.add(PosixFilePermission.OWNER_READ);
+        if ((mode & 0200) != 0) perms.add(PosixFilePermission.OWNER_WRITE);
+        if ((mode & 0100) != 0) perms.add(PosixFilePermission.OWNER_EXECUTE);
+        if ((mode & 0040) != 0) perms.add(PosixFilePermission.GROUP_READ);
+        if ((mode & 0020) != 0) perms.add(PosixFilePermission.GROUP_WRITE);
+        if ((mode & 0010) != 0) perms.add(PosixFilePermission.GROUP_EXECUTE);
+        if ((mode & 0004) != 0) perms.add(PosixFilePermission.OTHERS_READ);
+        if ((mode & 0002) != 0) perms.add(PosixFilePermission.OTHERS_WRITE);
+        if ((mode & 0001) != 0) perms.add(PosixFilePermission.OTHERS_EXECUTE);
+        return perms;
     }
 
     private static boolean isReleaseOnly(String entryName) {

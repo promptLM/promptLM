@@ -52,4 +52,35 @@ class TemplateContextTest {
         assertThrows(NullPointerException.class,
                 () -> new TemplateContext("r", "o", "d", now, null));
     }
+
+    @Test
+    void backCompatConstructorDerivesArtifactCoordinates() {
+        Instant now = Instant.parse("2026-05-17T01:23:45Z");
+        TemplateContext ctx = new TemplateContext("My-Prompts", "ACME-Corp", "desc", now, "1.0.0");
+
+        assertEquals("My-Prompts", ctx.projectName());
+        assertEquals("io.github.acme-corp", ctx.mavenGroupId());
+        assertEquals("my-prompts", ctx.mavenArtifactId());
+        assertEquals("my-prompts", ctx.pythonDistributionName());
+        assertEquals("my_prompts", ctx.pythonImportName());
+        assertEquals("my-prompts", ctx.npmPackageName());
+    }
+
+    @Test
+    void canonicalConstructorExposesAllElevenFields() {
+        Instant now = Instant.parse("2026-05-17T01:23:45Z");
+        TemplateContext ctx = new TemplateContext(
+                "repo", "owner", "desc", now, "1.0.0",
+                "Display Name", "com.example", "my-artifact",
+                "my-dist", "my_import", "my-npm");
+
+        assertEquals("repo", ctx.repositoryName());
+        assertEquals("owner", ctx.ownerName());
+        assertEquals("Display Name", ctx.projectName());
+        assertEquals("com.example", ctx.mavenGroupId());
+        assertEquals("my-artifact", ctx.mavenArtifactId());
+        assertEquals("my-dist", ctx.pythonDistributionName());
+        assertEquals("my_import", ctx.pythonImportName());
+        assertEquals("my-npm", ctx.npmPackageName());
+    }
 }

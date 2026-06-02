@@ -30,11 +30,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -227,6 +229,17 @@ class RepositoryTemplateActSmokeTest {
     }
 
     private static void extractRepositoryTemplate(Path repositoryDir) throws IOException {
+        // Mirror the production extractor's behavior: substitute template tokens
+        // (otherwise the new {{MAVEN_GROUP_ID}} / {{MAVEN_ARTIFACT_ID}} tokens leave a
+        // pom.xml that Maven refuses to parse) and apply +x to the release scripts.
+        TemplateSubstitutionEngine engine = new TemplateSubstitutionEngine();
+        TemplateContext context = new TemplateContext(
+                "template-repo",
+                "promptlm-act-smoke",
+                "act-smoke template repository",
+                Instant.parse("2026-05-17T01:23:45Z"),
+                "smoke");
+
         try (InputStream resource = RepositoryTemplateActSmokeTest.class.getClassLoader()
                 .getResourceAsStream("repo-template.zip")) {
             if (resource == null) {
@@ -240,7 +253,22 @@ class RepositoryTemplateActSmokeTest {
                         Files.createDirectories(target);
                     } else {
                         Files.createDirectories(target.getParent());
-                        Files.copy(zipInputStream, target);
+                        byte[] bytes = zipInputStream.readAllBytes();
+                        if (engine.isTextEntry(entry.getName())) {
+                            bytes = engine.substitute(entry.getName(), bytes, context);
+                        }
+                        Files.write(target, bytes);
+                        // Mark release scripts executable so the workflow can invoke them.
+                        String normalized = entry.getName().replace('\\', '/');
+                        if (normalized.startsWith("tools/release/")
+                                || (normalized.startsWith("scripts/") && normalized.endsWith(".sh"))) {
+                            try {
+                                Files.setPosixFilePermissions(target, Set.copyOf(
+                                        java.nio.file.attribute.PosixFilePermissions.fromString("rwxr-xr-x")));
+                            } catch (UnsupportedOperationException ignored) {
+                                // Non-POSIX filesystem — best effort only.
+                            }
+                        }
                     }
                 }
             }
