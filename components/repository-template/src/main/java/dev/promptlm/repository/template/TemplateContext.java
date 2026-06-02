@@ -69,11 +69,15 @@ public record TemplateContext(
     }
 
     /**
-     * Back-compat secondary constructor: takes the 5 original fields and derives the
-     * artifact-coordinate tokens from {@code repositoryName} / {@code ownerName} via
-     * {@link ArtifactCoordinateSanitizer}. New call sites that want explicit control over
-     * the artifact coordinates should use the canonical constructor.
+     * Back-compat secondary constructor. Retained for back-compat; new production call sites
+     * SHOULD use the canonical 11-arg constructor and pass explicit coordinates. The
+     * auto-derivation via {@link ArtifactCoordinateSanitizer} performed here is intended for
+     * tests and migration only — relying on it from production code risks silently shipping
+     * the derived defaults where an explicit override was intended.
+     *
+     * @deprecated Use the canonical 11-arg constructor; see class javadoc.
      */
+    @Deprecated(since = "0.2.0", forRemoval = false)
     public TemplateContext(
             String repositoryName,
             String ownerName,

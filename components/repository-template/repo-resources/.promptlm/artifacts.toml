@@ -31,8 +31,11 @@ npm_repo_url = "https://REPLACE_ME_ARTIFACTORY_URL/api/npm/npm-local"
 
 [deploy.profiles.github]
 type = "github_packages"
-maven_repo_url = "https://maven.pkg.github.com/REPLACE_ME_github_owner/REPLACE_ME_github_repo"
-pypi_repo_url = "https://REPLACE_ME_github_pypi_url"
+maven_repo_url = "https://maven.pkg.github.com/{{REPO_OWNER}}/{{REPO_NAME}}"
+# GitHub Packages does not provide a generic PyPI endpoint. Teams that need
+# PyPI publishing typically point this at a self-hosted index or PyPI itself;
+# leave the placeholder so the misconfiguration is loud rather than silent.
+pypi_repo_url = "https://REPLACE_ME_pypi_repo_url"
 npm_repo_url = "https://npm.pkg.github.com"
 
 [deploy.profiles.custom]

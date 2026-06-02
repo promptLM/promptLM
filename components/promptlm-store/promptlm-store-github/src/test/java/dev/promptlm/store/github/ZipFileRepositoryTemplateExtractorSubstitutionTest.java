@@ -159,8 +159,12 @@ class ZipFileRepositoryTemplateExtractorSubstitutionTest {
         // where downstream tooling would consume it as a real value.
         //
         // Known-legitimate references (allow-listed):
-        //   - .promptlm/artifacts.toml: sample deploy-profile URLs (Artifactory /
-        //     GitHub-packages / custom) — P1 follow-up.
+        //   - .promptlm/artifacts.toml: Artifactory / custom-profile URLs that genuinely
+        //     require the user to fill in an external service URL we cannot know at
+        //     rollout time (REPLACE_ME_ARTIFACTORY_URL, REPLACE_ME_custom_*,
+        //     REPLACE_ME_pypi_repo_url for the GitHub profile — see comment in the file).
+        //     The GitHub Maven URL is substituted via {{REPO_OWNER}}/{{REPO_NAME}} so it
+        //     does NOT appear in the allow-list.
         //   - .github/artifactory-config.yml: REFERENCE ONLY per issue #325 (P1).
         //   - scripts/package-prompts.sh: documents in a comment that
         //     REPLACE_ME_* values trigger a fallback — describing the string, not
@@ -188,9 +192,13 @@ class ZipFileRepositoryTemplateExtractorSubstitutionTest {
     }
 
     /**
-     * Regression guard for issue #323: release scripts must be extracted with the
-     * executable bit set so the generated CI workflows can invoke
-     * {@code ./tools/release/build-artifacts} without "Permission denied".
+     * Regression guard for issue #323: every extracted file's executable bit must agree
+     * with the extractor's own {@link ZipFileRepositoryTemplateExtractor#isExecutableEntry}
+     * classifier — files the classifier deems executable must have the bit set, and
+     * everything else must not. Walking the whole tree (rather than hardcoding two paths)
+     * means a newly added shell script in the template is caught automatically as long as
+     * it is registered in {@code EXECUTABLE_PATH_PATTERNS} and pinned to {@code 0755} in
+     * the assembly descriptor — the two sources of truth for the shipped archive.
      */
     @Test
     void releaseScriptsAreExecutableOnPosix(@TempDir Path tempDir) throws IOException {
@@ -208,16 +216,31 @@ class ZipFileRepositoryTemplateExtractorSubstitutionTest {
 
         extractor.extractTo(tempDir, context);
 
-        Path buildArtifacts = tempDir.resolve("tools/release/build-artifacts");
-        Path publishArtifacts = tempDir.resolve("tools/release/publish-artifacts");
-        assertThat(buildArtifacts).exists();
-        assertThat(publishArtifacts).exists();
-        assertThat(Files.isExecutable(buildArtifacts))
-                .as("tools/release/build-artifacts must be executable after extraction (regression guard for #323)")
-                .isTrue();
-        assertThat(Files.isExecutable(publishArtifacts))
-                .as("tools/release/publish-artifacts must be executable after extraction (regression guard for #323)")
-                .isTrue();
+        // Spot-check the canonical executables exist so a silent miss (e.g. release-only
+        // gating bug) doesn't pass this test vacuously.
+        List<Path> requiredExecutables = List.of(
+                tempDir.resolve("tools/release/build-artifacts"),
+                tempDir.resolve("tools/release/publish-artifacts"),
+                tempDir.resolve("scripts/validate-prompts.sh"),
+                tempDir.resolve("scripts/package-prompts.sh"));
+        for (Path required : requiredExecutables) {
+            assertThat(required)
+                    .as("expected executable %s to be present after extraction", tempDir.relativize(required))
+                    .exists();
+        }
+
+        // Walk the whole tree: every file's executable bit must match the classifier the
+        // extractor itself uses, so adding a new shell script anywhere in the template
+        // automatically extends coverage.
+        try (Stream<Path> walk = Files.walk(tempDir)) {
+            walk.filter(Files::isRegularFile).forEach(p -> {
+                String relative = tempDir.relativize(p).toString().replace('\\', '/');
+                boolean expectedExecutable = ZipFileRepositoryTemplateExtractor.isExecutableEntry(relative);
+                assertThat(Files.isExecutable(p))
+                        .as("executable bit on %s must match isExecutableEntry classifier (regression guard for #323)", relative)
+                        .isEqualTo(expectedExecutable);
+            });
+        }
     }
 
     private static List<Path> collectTextFiles(Path root) throws IOException {
