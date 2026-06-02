@@ -38,7 +38,7 @@ jobs:
       version: ${{ steps.set-version.outputs.version }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
 
       - name: Set Next Version
         id: set-version
@@ -83,9 +83,9 @@ jobs:
     needs: calculate_version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
       - name: Set up JDK
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5
         with:
           java-version: '21'
           distribution: 'temurin'
@@ -97,9 +97,9 @@ jobs:
     needs: jvm-verify
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
       - name: Set up JDK
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5
         with:
           java-version: '21'
           distribution: 'temurin'
@@ -110,7 +110,7 @@ jobs:
         run: mvn -B -f acceptance-tests/pom.xml -Dpromptlm.bootstrap.skip=true test
       - name: Upload Acceptance Test Artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: release-acceptance-tests-${{ github.sha }}
           if-no-files-found: warn
@@ -132,12 +132,12 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
         with:
           fetch-depth: 0
 
       - name: Set up JDK
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5
         with:
           java-version: '21'
           distribution: 'temurin'
@@ -202,7 +202,7 @@ jobs:
           mvn -B -pl apps/promptlm-cli,apps/promptlm-webapp -am -DskipTests package
 
       - name: Upload JAR Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: app-jars
           path: |
@@ -226,9 +226,9 @@ jobs:
             platform: windows
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
       - name: Set up GraalVM
-        uses: graalvm/setup-graalvm@v1
+        uses: graalvm/setup-graalvm@bef4b0e916c7dd079bf60fb95d49139f67e32c5f  # v1
         with:
           java-version: '25.0.2'
           distribution: 'graalvm-community'
@@ -267,7 +267,7 @@ jobs:
 
           Compress-Archive -Path "$workDir/promptlm-cli/*" -DestinationPath "target/native/promptlm-cli-windows-$arch.zip" -Force
       - name: Upload Native Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: native-${{ matrix.platform }}
           path: |
@@ -280,9 +280,9 @@ jobs:
     needs: jvm-acceptance
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
       - name: Set up GraalVM
-        uses: graalvm/setup-graalvm@v1
+        uses: graalvm/setup-graalvm@bef4b0e916c7dd079bf60fb95d49139f67e32c5f  # v1
         with:
           java-version: '25.0.2'
           distribution: 'graalvm-community'
@@ -301,7 +301,7 @@ jobs:
             test
       - name: Upload Native Smoke Artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: release-native-smoke-${{ github.sha }}
           if-no-files-found: warn
@@ -320,7 +320,7 @@ jobs:
     needs: [calculate_version, release, build-native-matrix, native-smoke]
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
 
       - name: Prep dir
         run: |
@@ -328,14 +328,14 @@ jobs:
           mkdir -p target/native
 
       - name: Download JAR Artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4
         with:
           name: app-jars
           merge-multiple: true
           path: target/jars
 
       - name: Download Native Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4
         with:
           pattern: native-*
           merge-multiple: true
@@ -392,7 +392,7 @@ jobs:
       - name: Generate Changelog
         if: steps.tag-check.outputs.has_tags == 'true'
         id: changelog
-        uses: mikepenz/release-changelog-builder-action@v5
+        uses: mikepenz/release-changelog-builder-action@c9dc8369bccbc41e0ac887f8fd674f5925d315f7  # v5
         with:
           configurationJson: |
             {
@@ -418,7 +418,7 @@ jobs:
 
       - name: Create Release (With Changelog)
         if: steps.tag-check.outputs.has_tags == 'true'
-        uses: mikepenz/action-gh-release@v1
+        uses: mikepenz/action-gh-release@9a604afa5167a745eab07256a54e2f578a1a0c5e  # v1
         with:
           tag_name: v${{ needs.calculate_version.outputs.version }}
           allowUpdates: true
@@ -432,7 +432,7 @@ jobs:
 
       - name: Create Release (Initial Notes Fallback)
         if: steps.tag-check.outputs.has_tags != 'true'
-        uses: mikepenz/action-gh-release@v1
+        uses: mikepenz/action-gh-release@9a604afa5167a745eab07256a54e2f578a1a0c5e  # v1
         with:
           tag_name: v${{ needs.calculate_version.outputs.version }}
           allowUpdates: true
