@@ -94,9 +94,9 @@ jobs:
             echo "Expected semantic version with optional -SNAPSHOT, got: $current_version" >&2; exit 1
           fi
           case "${{ inputs.release_type }}" in
-            major) ((major++)); minor=0; patch=0 ;;
-            minor) ((minor++)); patch=0 ;;
-            patch) ((patch++)) ;;
+            major) major=$((major + 1)); minor=0; patch=0 ;;
+            minor) minor=$((minor + 1)); patch=0 ;;
+            patch) patch=$((patch + 1)) ;;
             *) echo "Unsupported release_type: ${{ inputs.release_type }}" >&2; exit 1 ;;
           esac
           echo "version=${major}.${minor}.${patch}" >> "$GITHUB_OUTPUT"
