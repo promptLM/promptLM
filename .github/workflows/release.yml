@@ -74,10 +74,14 @@ jobs:
           # parent POM (../promptlm-platform/pom.xml) is in a sibling repo not
           # checked out on the runner, and `-q` swallows the resolution error.
           current_version="$(python3 - <<'PY'
-          import xml.etree.ElementTree as ET
+          import sys, xml.etree.ElementTree as ET
           ns = {'m': 'http://maven.apache.org/POM/4.0.0'}
           root = ET.parse('pom.xml').getroot()
-          v = root.find('m:version', ns) or root.find('m:parent/m:version', ns)
+          v = root.find('m:version', ns)
+          if v is None:
+              v = root.find('m:parent/m:version', ns)
+          if v is None or not v.text:
+              sys.exit("Could not locate <version> in pom.xml")
           print(v.text)
           PY
           )"
