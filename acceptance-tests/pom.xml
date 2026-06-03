@@ -46,7 +46,7 @@
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven-surefire-plugin.version>3.2.5</maven-surefire-plugin.version>
-        <promptlm-gitea-artifactory.version>1.2.1-SNAPSHOT</promptlm-gitea-artifactory.version>
+        <promptlm-gitea-artifactory.version>1.3.0</promptlm-gitea-artifactory.version>
         <promptlm.bootstrap.skip>false</promptlm.bootstrap.skip>
         <promptlm.test.groups>integration</promptlm.test.groups>
         <promptlm.test.excludedGroups></promptlm.test.excludedGroups>
