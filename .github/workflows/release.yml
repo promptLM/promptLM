@@ -70,7 +70,17 @@ jobs:
         id: set-version
         run: |
           set -euo pipefail
-          current_version="$(mvn -q help:evaluate -Dexpression=project.version -DforceStdout)"
+          # Parse pom.xml directly: `mvn help:evaluate` fails here because the
+          # parent POM (../promptlm-platform/pom.xml) is in a sibling repo not
+          # checked out on the runner, and `-q` swallows the resolution error.
+          current_version="$(python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          ns = {'m': 'http://maven.apache.org/POM/4.0.0'}
+          root = ET.parse('pom.xml').getroot()
+          v = root.find('m:version', ns) or root.find('m:parent/m:version', ns)
+          print(v.text)
+          PY
+          )"
           base_version="${current_version%-SNAPSHOT}"
           IFS='.' read -r major minor patch <<< "$base_version"
           if [[ -z "${major:-}" || -z "${minor:-}" || -z "${patch:-}" ]]; then
