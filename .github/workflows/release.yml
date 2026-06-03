@@ -73,18 +73,18 @@ jobs:
           # Parse pom.xml directly: `mvn help:evaluate` fails here because the
           # parent POM (../promptlm-platform/pom.xml) is in a sibling repo not
           # checked out on the runner, and `-q` swallows the resolution error.
-          current_version="$(python3 - <<'PY'
-          import sys, xml.etree.ElementTree as ET
-          ns = {'m': 'http://maven.apache.org/POM/4.0.0'}
-          root = ET.parse('pom.xml').getroot()
-          v = root.find('m:version', ns)
-          if v is None:
-              v = root.find('m:parent/m:version', ns)
-          if v is None or not v.text:
-              sys.exit("Could not locate <version> in pom.xml")
-          print(v.text)
-          PY
-          )"
+          # Take the first <version> AFTER </parent> — that's the project's own.
+          current_version=$(awk '
+            /<\/parent>/ { past_parent = 1; next }
+            past_parent && /<version>/ {
+              sub(/.*<version>/, ""); sub(/<\/version>.*/, "")
+              gsub(/^[ \t]+|[ \t]+$/, "")
+              print; exit
+            }
+          ' pom.xml)
+          if [[ -z "$current_version" ]]; then
+            echo "Could not locate <version> in pom.xml" >&2; exit 1
+          fi
           base_version="${current_version%-SNAPSHOT}"
           IFS='.' read -r major minor patch <<< "$base_version"
           if [[ -z "${major:-}" || -z "${minor:-}" || -z "${patch:-}" ]]; then
