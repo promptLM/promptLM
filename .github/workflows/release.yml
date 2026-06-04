@@ -59,7 +59,7 @@ jobs:
     outputs:
       version: ${{ steps.set-version.outputs.version }}
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
       - name: Set up JDK
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5
         with:
@@ -93,10 +93,17 @@ jobs:
           if ! [[ "$major" =~ ^[0-9]+$ && "$minor" =~ ^[0-9]+$ && "$patch" =~ ^[0-9]+$ ]]; then
             echo "Expected semantic version with optional -SNAPSHOT, got: $current_version" >&2; exit 1
           fi
+          # SNAPSHOT semantics (Maven convention): pom.xml "X.Y.Z-SNAPSHOT" already
+          # represents the next release as X.Y.Z, so `patch` releases X.Y.Z unchanged.
+          # `minor` / `major` still skip ahead regardless. On a non-SNAPSHOT pom (rare —
+          # only when releasing immediately on top of an already-published version
+          # without manually bumping), `patch` bumps the patch component.
           case "${{ inputs.release_type }}" in
             major) major=$((major + 1)); minor=0; patch=0 ;;
             minor) minor=$((minor + 1)); patch=0 ;;
-            patch) patch=$((patch + 1)) ;;
+            patch)
+              [[ "$current_version" == *-SNAPSHOT ]] || patch=$((patch + 1))
+              ;;
             *) echo "Unsupported release_type: ${{ inputs.release_type }}" >&2; exit 1 ;;
           esac
           echo "version=${major}.${minor}.${patch}" >> "$GITHUB_OUTPUT"
