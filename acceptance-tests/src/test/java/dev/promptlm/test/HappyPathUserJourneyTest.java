@@ -38,6 +38,9 @@ import dev.promptlm.testutils.artifactory.ArtifactoryContainer;
 import dev.promptlm.testutils.artifactory.WithArtifactory;
 import dev.promptlm.testutils.gitea.Gitea;
 import dev.promptlm.testutils.gitea.GiteaActions;
+import dev.promptlm.testutils.gitea.GiteaActionsDiagnostics;
+import dev.promptlm.testutils.gitea.GiteaActionsLogFile;
+import dev.promptlm.testutils.gitea.GiteaActionsTaskContainerLog;
 import dev.promptlm.testutils.gitea.GiteaContainer;
 import dev.promptlm.testutils.gitea.GiteaWorkflowException;
 import dev.promptlm.testutils.gitea.WithGitea;
@@ -53,11 +56,12 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.http.HttpClient;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -590,7 +594,7 @@ public class HappyPathUserJourneyTest {
 
             GiteaActions.ActionRunSummary run = report.run();
             if (!"success".equalsIgnoreCase(run.conclusion())) {
-                dumpWorkflowJobLogs(report);
+                dumpDiagnostics(report, run.id());
                 throw new IllegalStateException(
                         "Workflow '" + workflowFile + "' did not succeed: runId=" + run.id()
                                 + " status=" + run.status()
@@ -615,20 +619,41 @@ public class HappyPathUserJourneyTest {
         }
     }
 
-    private void dumpWorkflowJobLogs(GiteaActions.ActionExecutionReport report) {
-        GiteaActions.ActionRunSummary run = report.run();
+    private void dumpDiagnostics(GiteaActions.ActionExecutionReport report, long runId) {
         for (GiteaActions.ActionJobSummary job : report.jobs()) {
             log.error("Job '{}' (id={}) status={} conclusion={}",
                     job.name(), job.id(), job.status(), job.conclusion());
-            try {
-                byte[] logs = gitea.actions().downloadWorkflowJobLogs(
-                        repositoryOwner, REPO_NAME, run.id(), job.id());
-                log.error("--- job '{}' logs ---\n{}\n--- end job '{}' logs ---",
-                        job.name(), new String(logs, StandardCharsets.UTF_8), job.name());
-            } catch (RuntimeException logError) {
-                log.warn("Failed to download logs for job '{}' (id={}): {}",
-                        job.name(), job.id(), logError.getMessage());
+        }
+        // The /actions/runs/{run}/jobs/{job}/logs endpoint Gitea exposes
+        // returns 404 in the runner version used here; collectActionsDiagnostics
+        // already implements the fallback (per-task container docker logs +
+        // Gitea-side actions log files), so use that instead of calling
+        // downloadWorkflowJobLogs directly. See issue #345.
+        GiteaActionsDiagnostics diagnostics;
+        try {
+            diagnostics = gitea.collectActionsDiagnostics(repositoryOwner, REPO_NAME, runId);
+        } catch (RuntimeException diagnosticsError) {
+            log.warn("Failed to collect Gitea Actions diagnostics for run id={}: {}",
+                    runId, diagnosticsError.getMessage());
+            return;
+        }
+
+        for (Map.Entry<Long, List<GiteaActionsTaskContainerLog>> entry
+                : diagnostics.taskContainerLogsByJobId().entrySet()) {
+            for (GiteaActionsTaskContainerLog taskLog : entry.getValue()) {
+                log.error("--- runner task container log (jobId={} containerId={} names={}) ---\n{}\n--- end ---",
+                        entry.getKey(),
+                        taskLog.containerId(),
+                        taskLog.containerNames(),
+                        taskLog.logs());
             }
+        }
+        for (GiteaActionsLogFile logFile : diagnostics.giteaActionsLogFiles()) {
+            log.error("--- gitea actions log file {} ({} bytes) ---\n{}\n--- end ---",
+                    logFile.path(), logFile.sizeBytes(), logFile.contents());
+        }
+        if (!diagnostics.warnings().isEmpty()) {
+            log.warn("Diagnostics collector warnings: {}", diagnostics.warnings());
         }
     }
 
