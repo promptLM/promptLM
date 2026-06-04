@@ -17,6 +17,9 @@
 package dev.promptlm.test;
 
 import com.microsoft.playwright.Page;
+import dev.promptlm.repository.template.ArtifactCoordinateSanitizer;
+import dev.promptlm.repository.template.TemplateContext;
+import dev.promptlm.repository.template.TemplateSubstitutionEngine;
 import dev.promptlm.test.support.ReleaseArtifactContractDelegate;
 import dev.promptlm.testutils.artifactory.Artifactory;
 import dev.promptlm.testutils.artifactory.ArtifactoryContainer;
@@ -45,12 +48,18 @@ import java.io.InputStream;
 import java.net.URISyntaxException;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Locale;
+import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.slf4j.Logger;
@@ -304,10 +313,89 @@ class CiWorkflowHarnessTest implements WithAssertions {
             }
         }
 
+        /**
+         * Path patterns that must land in the seeded repo with the executable bit set —
+         * mirrors {@code ZipFileRepositoryTemplateExtractor.EXECUTABLE_PATH_PATTERNS} in the
+         * production extractor. The two lists must stay in sync (see issue #331 finding #5
+         * for the planned shared helper). If a new shell script is added to the template,
+         * register it both here and in the production extractor.
+         */
+        private static final List<Pattern> EXECUTABLE_PATH_PATTERNS = List.of(
+                Pattern.compile("^tools/release/[^/]+$"),
+                Pattern.compile("^scripts/[^/]+\\.sh$"));
+
         private void extractTemplate(Path repoDir) throws IOException {
+            // The shipped template contains tokens like {{MAVEN_GROUP_ID}} that are
+            // invalid Maven coordinates until substituted; a raw unzip leaves the seeded
+            // repo with an unparseable pom.xml, the workflow dies in versions:set, and the
+            // outer test waits 12 minutes for an artifact that never gets published.
+            // Mirror the production extractor: substitute text entries and mark release
+            // scripts executable so JGit's add+commit preserves the +x bit downstream.
             try (InputStream inputStream = resourceStream()) {
                 ZipTestUtils.unzip(inputStream, repoDir);
             }
+            applyTemplateSubstitutionAndPermissions(repoDir);
+        }
+
+        private void applyTemplateSubstitutionAndPermissions(Path repoDir) throws IOException {
+            TemplateSubstitutionEngine engine = new TemplateSubstitutionEngine();
+            TemplateContext context = buildTemplateContext();
+            boolean posixSupported = FileSystems.getDefault()
+                    .supportedFileAttributeViews().contains("posix");
+            Set<java.nio.file.attribute.PosixFilePermission> executablePerms = posixSupported
+                    ? PosixFilePermissions.fromString("rwxr-xr-x")
+                    : Set.of();
+
+            try (Stream<Path> walk = Files.walk(repoDir)) {
+                List<Path> files = walk.filter(Files::isRegularFile).collect(Collectors.toList());
+                for (Path file : files) {
+                    String relativeEntry = repoDir.relativize(file).toString().replace('\\', '/');
+                    if (engine.isTextEntry(relativeEntry)) {
+                        byte[] original = Files.readAllBytes(file);
+                        byte[] substituted = engine.substitute(relativeEntry, original, context);
+                        Files.write(file, substituted);
+                    }
+                    if (posixSupported && isExecutableEntry(relativeEntry)) {
+                        try {
+                            Files.setPosixFilePermissions(file, executablePerms);
+                        } catch (UnsupportedOperationException ignored) {
+                            // Non-POSIX filesystem — best effort only.
+                        }
+                    }
+                }
+            }
+        }
+
+        private TemplateContext buildTemplateContext() {
+            String owner = gitea.getAdminUsername();
+            // Use the canonical 11-arg constructor and call ArtifactCoordinateSanitizer
+            // explicitly so the seeded pom.xml ends up with valid coordinates like
+            // <groupId>io.github.testuser</groupId> / <artifactId>template-repo</artifactId>.
+            return new TemplateContext(
+                    REPO_NAME,
+                    owner,
+                    "Acceptance-test seeded template repository",
+                    Instant.parse("2026-05-17T01:23:45Z"),
+                    "acceptance-test",
+                    ArtifactCoordinateSanitizer.projectName(REPO_NAME),
+                    ArtifactCoordinateSanitizer.mavenGroupId(owner),
+                    ArtifactCoordinateSanitizer.mavenArtifactId(REPO_NAME),
+                    ArtifactCoordinateSanitizer.pythonDistributionName(REPO_NAME),
+                    ArtifactCoordinateSanitizer.pythonImportName(REPO_NAME),
+                    ArtifactCoordinateSanitizer.npmPackageName(REPO_NAME));
+        }
+
+        private static boolean isExecutableEntry(String entryName) {
+            if (entryName == null) {
+                return false;
+            }
+            String normalized = entryName.replace('\\', '/').toLowerCase(Locale.ROOT);
+            for (Pattern p : EXECUTABLE_PATH_PATTERNS) {
+                if (p.matcher(normalized).matches()) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         private String commitAndPush(Path repoDir, boolean force) throws IOException, GitAPIException {

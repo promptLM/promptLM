@@ -73,7 +73,6 @@
         <dependency>
             <groupId>dev.promptlm.test</groupId>
             <artifactId>junit-gitea-artifactory</artifactId>
-            <version>${promptlm-gitea-artifactory.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>

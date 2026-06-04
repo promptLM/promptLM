@@ -15,6 +15,19 @@
 
 name: Release
 
+# Thin caller of the org-wide reusable workflow at
+# promptLM/.github/.github/workflows/release-java-ghpackages.yml.
+#
+# The reusable owns the full pipeline (validate → verify → native matrix →
+# native-smoke → deploy to GH Packages → create GH Release with binaries).
+# This file only:
+#   1. computes the next version from the release_type (major/minor/patch)
+#   2. delegates to the reusable with that version
+#
+# When the repo moves to release-please, replace the calculate_version job
+# with a release-please job that emits the version on tag creation, and the
+# call below stays identical.
+
 on:
   workflow_dispatch:
     inputs:
@@ -26,428 +39,75 @@ on:
           - major
           - minor
           - patch
+      dry-run:
+        description: 'Run the pipeline without deploying or creating the release'
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
+permissions:
+  contents: write   # for the GH Release the reusable creates
+  packages: write   # for the GH Packages publish the reusable performs
+
 jobs:
   calculate_version:
+    name: compute version
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.set-version.outputs.version }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-
-      - name: Set Next Version
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - name: Set up JDK
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+      - name: Bump version
         id: set-version
         run: |
           set -euo pipefail
-          current_version="$(mvn -q help:evaluate -Dexpression=project.version -DforceStdout)"
+          # Parse pom.xml directly: `mvn help:evaluate` fails here because the
+          # parent POM (../promptlm-platform/pom.xml) is in a sibling repo not
+          # checked out on the runner, and `-q` swallows the resolution error.
+          # Take the first <version> AFTER </parent> — that's the project's own.
+          current_version=$(awk '
+            /<\/parent>/ { past_parent = 1; next }
+            past_parent && /<version>/ {
+              sub(/.*<version>/, ""); sub(/<\/version>.*/, "")
+              gsub(/^[ \t]+|[ \t]+$/, "")
+              print; exit
+            }
+          ' pom.xml)
+          if [[ -z "$current_version" ]]; then
+            echo "Could not locate <version> in pom.xml" >&2; exit 1
+          fi
           base_version="${current_version%-SNAPSHOT}"
-
           IFS='.' read -r major minor patch <<< "$base_version"
           if [[ -z "${major:-}" || -z "${minor:-}" || -z "${patch:-}" ]]; then
-            echo "Unsupported project.version format: $current_version" >&2
-            exit 1
+            echo "Unsupported project.version: $current_version" >&2; exit 1
           fi
           if ! [[ "$major" =~ ^[0-9]+$ && "$minor" =~ ^[0-9]+$ && "$patch" =~ ^[0-9]+$ ]]; then
-            echo "Expected semantic version with optional -SNAPSHOT suffix, got: $current_version" >&2
-            exit 1
+            echo "Expected semantic version with optional -SNAPSHOT, got: $current_version" >&2; exit 1
           fi
-
-          case "${{ github.event.inputs.release_type }}" in
-            "major")
-              ((major++))
-              minor=0
-              patch=0
-              ;;
-            "minor")
-              ((minor++))
-              patch=0
-              ;;
-            "patch")
-              ((patch++))
-              ;;
-            *)
-              echo "Unsupported release type: ${{ github.event.inputs.release_type }}" >&2
-              exit 1
-              ;;
+          case "${{ inputs.release_type }}" in
+            major) major=$((major + 1)); minor=0; patch=0 ;;
+            minor) minor=$((minor + 1)); patch=0 ;;
+            patch) patch=$((patch + 1)) ;;
+            *) echo "Unsupported release_type: ${{ inputs.release_type }}" >&2; exit 1 ;;
           esac
+          echo "version=${major}.${minor}.${patch}" >> "$GITHUB_OUTPUT"
 
-          next_version="${major}.${minor}.${patch}"
-          echo "version=$next_version" >> "$GITHUB_OUTPUT"
-
-  jvm-verify:
+  publish:
+    name: publish v${{ needs.calculate_version.outputs.version }}
     needs: calculate_version
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - name: Set up JDK
-        uses: actions/setup-java@v5
-        with:
-          java-version: '21'
-          distribution: 'temurin'
-          cache: 'maven'
-      - name: Run JVM build and tests
-        run: mvn -B verify
-
-  jvm-acceptance:
-    needs: jvm-verify
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - name: Set up JDK
-        uses: actions/setup-java@v5
-        with:
-          java-version: '21'
-          distribution: 'temurin'
-          cache: 'maven'
-      - name: Install artifacts required by acceptance-tests
-        run: mvn -B -DskipTests -pl apps/promptlm-cli,apps/promptlm-webapp,components/repository-template -am install
-      - name: Run acceptance tests
-        run: mvn -B -f acceptance-tests/pom.xml -Dpromptlm.bootstrap.skip=true test
-      - name: Upload Acceptance Test Artifacts
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-acceptance-tests-${{ github.sha }}
-          if-no-files-found: warn
-          path: |
-            acceptance-tests/target/surefire-reports/**
-            acceptance-tests/target/screenshots/**
-            acceptance-tests/target/traces/**
-          retention-days: 1
-
-  release:
-    needs: [calculate_version, jvm-verify, jvm-acceptance, build-native-matrix, native-smoke]
-    runs-on: ubuntu-latest
-    env:
-      GITHUB_ACTOR: ${{ github.actor }}
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    permissions:
-      contents: write
-      packages: write
-      pull-requests: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-
-      - name: Set up JDK
-        uses: actions/setup-java@v5
-        with:
-          java-version: '21'
-          distribution: 'temurin'
-          cache: 'maven'
-          server-id: github
-          server-username: GITHUB_ACTOR
-          server-password: GITHUB_TOKEN
-
-      - name: Configure Git
-        run: |
-          git config user.email "actions@github.com"
-          git config user.name "GitHub Actions"
-
-      - name: Check if release version is already published
-        id: release-version-check
-        shell: bash
-        run: |
-          set -euo pipefail
-          version="${{ needs.calculate_version.outputs.version }}"
-          package_name="dev.promptlm.promptlm-parent"
-          versions_file="$(mktemp)"
-          error_file="$(mktemp)"
-
-          set +e
-          gh api "/orgs/promptlm/packages/maven/${package_name}/versions?per_page=100" --paginate --jq '.[].name' >"$versions_file" 2>"$error_file"
-          api_exit=$?
-          set -e
-
-          if [[ $api_exit -eq 0 ]]; then
-            if grep -Fxq "$version" "$versions_file"; then
-              echo "already_published=true" >> "$GITHUB_OUTPUT"
-              echo "Release version ${version} already exists in GitHub Packages. Skipping deploy and rebuilding release jars only."
-            else
-              echo "already_published=false" >> "$GITHUB_OUTPUT"
-              echo "Release version ${version} not found in GitHub Packages. Running full Maven release deploy."
-            fi
-          elif grep -Eq "404|Package not found" "$error_file"; then
-            echo "already_published=false" >> "$GITHUB_OUTPUT"
-            echo "Maven package ${package_name} not found yet. Treating release version ${version} as not published."
-          else
-            cat "$error_file" >&2
-            exit "$api_exit"
-          fi
-
-      - name: Prepare Maven Release
-        if: steps.release-version-check.outputs.already_published != 'true'
-        run: |
-          mvn -B release:clean release:prepare \
-            -DscmCredentialsId=github \
-            -DpushChanges=false \
-            -DreleaseVersion=${{ needs.calculate_version.outputs.version }}  \
-            -DdevelopmentVersion=${{ needs.calculate_version.outputs.version }}-SNAPSHOT
-
-      - name: Perform Maven Release
-        if: steps.release-version-check.outputs.already_published != 'true'
-        run: mvn -B release:perform -DlocalCheckout=true -Darguments="-DdeployAtEnd=true"
-
-      - name: Rebuild app jars for already-published release version
-        if: steps.release-version-check.outputs.already_published == 'true'
-        run: |
-          mvn -B versions:set -DnewVersion=${{ needs.calculate_version.outputs.version }} -DgenerateBackupPoms=false
-          mvn -B -pl apps/promptlm-cli,apps/promptlm-webapp -am -DskipTests package
-
-      - name: Upload JAR Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-jars
-          path: |
-            apps/**/target/*.jar
-            !apps/**/target/*.jar.original
-          if-no-files-found: error
-          retention-days: 1
-          overwrite: true
-
-  build-native-matrix:
-    needs: jvm-acceptance
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            platform: linux
-          - os: macos-latest
-            platform: macos
-          - os: windows-latest
-            platform: windows
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v5
-      - name: Set up GraalVM
-        uses: graalvm/setup-graalvm@v1
-        with:
-          java-version: '25.0.2'
-          distribution: 'graalvm-community'
-          components: 'native-image'
-      - name: Build native executables
-        run: mvn -B -Pnative -pl apps/promptlm-cli,apps/promptlm-webapp -am -DskipTests package
-      - name: Package native archives for Unix-like runners
-        if: matrix.platform != 'windows'
-        shell: bash
-        run: |
-          set -euo pipefail
-          arch="$(echo "${RUNNER_ARCH}" | tr '[:upper:]' '[:lower:]')"
-          work_dir="target/native/${{ matrix.platform }}-${arch}"
-          cli_binary="apps/promptlm-cli/target/promptlm-cli"
-
-          [[ -x "$cli_binary" ]] || { echo "Missing or non-executable native binary: $cli_binary" >&2; exit 1; }
-
-          mkdir -p "$work_dir/promptlm-cli"
-          cp "$cli_binary" "$work_dir/promptlm-cli/promptlm-cli"
-
-          mkdir -p target/native
-          tar -C "$work_dir" -czf "target/native/promptlm-cli-${{ matrix.platform }}-${arch}.tar.gz" promptlm-cli
-      - name: Package native archives for Windows
-        if: matrix.platform == 'windows'
-        shell: pwsh
-        run: |
-          $arch = $env:RUNNER_ARCH.ToLowerInvariant()
-          $workDir = "target/native/windows-$arch"
-          $cliBinary = "apps/promptlm-cli/target/promptlm-cli.exe"
-
-          if (-not (Test-Path $cliBinary)) { throw "Missing native binary: $cliBinary" }
-
-          New-Item -ItemType Directory -Path "$workDir/promptlm-cli" -Force | Out-Null
-
-          Copy-Item $cliBinary "$workDir/promptlm-cli/promptlm-cli.exe"
-
-          Compress-Archive -Path "$workDir/promptlm-cli/*" -DestinationPath "target/native/promptlm-cli-windows-$arch.zip" -Force
-      - name: Upload Native Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: native-${{ matrix.platform }}
-          path: |
-            target/native/promptlm-cli-${{ matrix.platform }}-*
-          if-no-files-found: error
-          retention-days: 1
-          overwrite: true
-
-  native-smoke:
-    needs: jvm-acceptance
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - name: Set up GraalVM
-        uses: graalvm/setup-graalvm@v1
-        with:
-          java-version: '25.0.2'
-          distribution: 'graalvm-community'
-          components: 'native-image'
-      - name: Build native executables
-        run: mvn -B -Pnative -pl apps/promptlm-cli,apps/promptlm-webapp -am -DskipTests package
-      - name: Install artifacts required by acceptance-tests
-        run: mvn -B -DskipTests -pl apps/promptlm-cli,apps/promptlm-webapp,components/repository-template -am install
-      - name: Run native smoke acceptance tests
-        run: |
-          mvn -B -f acceptance-tests/pom.xml \
-            -Dpromptlm.test.groups=native-smoke \
-            -Dpromptlm.test.excludedGroups= \
-            -Dpromptlm.test.cli.native.path=../apps/promptlm-cli/target/promptlm-cli \
-            -Dpromptlm.test.webapp.native.path=../apps/promptlm-webapp/target/promptlm-webapp \
-            test
-      - name: Upload Native Smoke Artifacts
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-native-smoke-${{ github.sha }}
-          if-no-files-found: warn
-          path: |
-            acceptance-tests/target/surefire-reports/**
-            acceptance-tests/target/screenshots/**
-            acceptance-tests/target/traces/**
-          retention-days: 1
-
-  create-github-release:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      packages: write
-      pull-requests: write
-    needs: [calculate_version, release, build-native-matrix, native-smoke]
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-
-      - name: Prep dir
-        run: |
-          mkdir -p target/jars
-          mkdir -p target/native
-
-      - name: Download JAR Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: app-jars
-          merge-multiple: true
-          path: target/jars
-
-      - name: Download Native Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: native-*
-          merge-multiple: true
-          path: target/native
-
-      - name: "Debug: List Release Artifacts"
-        run: |
-          ls -R target/jars
-          ls -R target/native
-
-      - name: Verify required native assets and generate checksums
-        shell: bash
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-
-          check_single_asset() {
-            local pattern="$1"
-            local label="$2"
-            local matches=($pattern)
-            if [[ ${#matches[@]} -ne 1 ]]; then
-              echo "Expected exactly one ${label} asset matching '${pattern}', found ${#matches[@]}." >&2
-              echo "Matches: ${matches[*]:-<none>}" >&2
-              exit 1
-            fi
-          }
-
-          check_single_asset "target/native/promptlm-cli-linux-*.tar.gz" "Linux CLI"
-          check_single_asset "target/native/promptlm-cli-macos-*.tar.gz" "macOS CLI"
-          check_single_asset "target/native/promptlm-cli-windows-*.zip" "Windows CLI"
-
-          (
-            cd target/native
-            sha256sum promptlm-* > SHA256SUMS
-          )
-          cat target/native/SHA256SUMS
-
-      - name: Check whether repository has release tags
-        id: tag-check
-        shell: bash
-        run: |
-          set -euo pipefail
-          tag_count="$(gh api "/repos/${{ github.repository }}/tags?per_page=1" --jq 'length')"
-          if [[ "$tag_count" -gt 0 ]]; then
-            echo "has_tags=true" >> "$GITHUB_OUTPUT"
-            echo "Found existing tags; changelog will be generated from tag history."
-          else
-            echo "has_tags=false" >> "$GITHUB_OUTPUT"
-            echo "No existing tags found; using initial release notes fallback."
-          fi
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Generate Changelog
-        if: steps.tag-check.outputs.has_tags == 'true'
-        id: changelog
-        uses: mikepenz/release-changelog-builder-action@v5
-        with:
-          configurationJson: |
-            {
-              "template": "#{{CHANGELOG}}\n\n<details>\n<summary>Uncategorized</summary>\n\n#{{UNCATEGORIZED}}\n</details>",
-              "pr_template": "#{{TITLE}} (#{{ASSIGNEES[*]}})",
-              "categories": [
-                {
-                  "title": "## 🚀 Features",
-                  "labels": ["enhancement"]
-                },
-                {
-                  "title": "## 🐛 Fixes",
-                  "labels": ["bug"]
-                },
-                {
-                  "title": "## 💬 Other",
-                  "labels": ["other"]
-                }
-              ]
-            }
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Create Release (With Changelog)
-        if: steps.tag-check.outputs.has_tags == 'true'
-        uses: mikepenz/action-gh-release@v1
-        with:
-          tag_name: v${{ needs.calculate_version.outputs.version }}
-          allowUpdates: true
-          replacesArtifacts: true
-          files: |
-            target/jars/**/*.jar
-            target/native/*
-          body: ${{ steps.changelog.outputs.changelog }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Create Release (Initial Notes Fallback)
-        if: steps.tag-check.outputs.has_tags != 'true'
-        uses: mikepenz/action-gh-release@v1
-        with:
-          tag_name: v${{ needs.calculate_version.outputs.version }}
-          allowUpdates: true
-          replacesArtifacts: true
-          files: |
-            target/jars/**/*.jar
-            target/native/*
-          body: |
-            ## Initial Release v${{ needs.calculate_version.outputs.version }}
-
-            This is the first published PromptLM release in this repository.
-
-            Included assets:
-            - JVM app JARs
-            - Native binaries for Linux, macOS, and Windows
-            - SHA256 checksums for native binaries
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    uses: promptLM/.github/.github/workflows/release-java-ghpackages.yml@main
+    with:
+      version: ${{ needs.calculate_version.outputs.version }}
+      dry-run: ${{ inputs.dry-run }}
+      maven-package-name: dev.promptlm.promptlm-parent
+      cli-binary: promptlm-cli
+    secrets: inherit

@@ -38,6 +38,12 @@ import java.util.Set;
  *     <li>{@code {{PROJECT_DESCRIPTION}}}</li>
  *     <li>{@code {{CREATED_AT}}} (ISO-8601 UTC)</li>
  *     <li>{@code {{GENERATOR_VERSION}}}</li>
+ *     <li>{@code {{PROJECT_NAME}}}</li>
+ *     <li>{@code {{MAVEN_GROUP_ID}}}</li>
+ *     <li>{@code {{MAVEN_ARTIFACT_ID}}}</li>
+ *     <li>{@code {{PYTHON_DISTRIBUTION_NAME}}}</li>
+ *     <li>{@code {{PYTHON_IMPORT_NAME}}}</li>
+ *     <li>{@code {{NPM_PACKAGE_NAME}}}</li>
  * </ul>
  *
  * <p>Substitution is single-pass: substituted output is never re-scanned for tokens.
@@ -166,6 +172,12 @@ public final class TemplateSubstitutionEngine {
         tokens.put("PROJECT_DESCRIPTION", maybeJsonEscape(context.projectDescription(), jsonEscape));
         tokens.put("CREATED_AT", maybeJsonEscape(createdAt, jsonEscape));
         tokens.put("GENERATOR_VERSION", maybeJsonEscape(generatorVersion, jsonEscape));
+        tokens.put("PROJECT_NAME", maybeJsonEscape(context.projectName(), jsonEscape));
+        tokens.put("MAVEN_GROUP_ID", maybeJsonEscape(context.mavenGroupId(), jsonEscape));
+        tokens.put("MAVEN_ARTIFACT_ID", maybeJsonEscape(context.mavenArtifactId(), jsonEscape));
+        tokens.put("PYTHON_DISTRIBUTION_NAME", maybeJsonEscape(context.pythonDistributionName(), jsonEscape));
+        tokens.put("PYTHON_IMPORT_NAME", maybeJsonEscape(context.pythonImportName(), jsonEscape));
+        tokens.put("NPM_PACKAGE_NAME", maybeJsonEscape(context.npmPackageName(), jsonEscape));
         return tokens;
     }
 
@@ -219,6 +231,8 @@ public final class TemplateSubstitutionEngine {
      */
     static Set<String> recognizedTokens() {
         return new LinkedHashSet<>(Set.of(
-                "REPO_NAME", "REPO_OWNER", "PROJECT_DESCRIPTION", "CREATED_AT", "GENERATOR_VERSION"));
+                "REPO_NAME", "REPO_OWNER", "PROJECT_DESCRIPTION", "CREATED_AT", "GENERATOR_VERSION",
+                "PROJECT_NAME", "MAVEN_GROUP_ID", "MAVEN_ARTIFACT_ID",
+                "PYTHON_DISTRIBUTION_NAME", "PYTHON_IMPORT_NAME", "NPM_PACKAGE_NAME"));
     }
 }
