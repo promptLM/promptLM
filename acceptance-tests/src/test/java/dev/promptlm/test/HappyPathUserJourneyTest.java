@@ -37,6 +37,7 @@ import dev.promptlm.testutils.artifactory.Artifactory;
 import dev.promptlm.testutils.artifactory.ArtifactoryContainer;
 import dev.promptlm.testutils.artifactory.WithArtifactory;
 import dev.promptlm.testutils.gitea.Gitea;
+import dev.promptlm.testutils.gitea.GiteaActions;
 import dev.promptlm.testutils.gitea.GiteaContainer;
 import dev.promptlm.testutils.gitea.WithGitea;
 import org.jetbrains.annotations.NotNull;
@@ -51,10 +52,13 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.http.HttpClient;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -537,16 +541,75 @@ public class HappyPathUserJourneyTest {
             gitea.logRepositoryActionsDiagnostics(repositoryOwner, REPO_NAME);
 
             Duration timeout = Duration.ofMinutes(12);
-            Duration pollInterval = Duration.ofSeconds(2);
-            gitea.waitForRepositoryActionsRun(repositoryOwner, REPO_NAME, timeout, pollInterval);
+            Duration pollInterval = Duration.ofSeconds(5);
+
+            // Poll for the most recent workflow run to reach a terminal state.
+            // The previous helper (gitea.waitForRepositoryActionsRun) only
+            // checked that a run *exists*, returning as soon as Gitea
+            // materialised the queued workflow_dispatch — leaving the test to
+            // log a misleading "finished successfully" and silently time out
+            // 12 min later on the artifact poll regardless of the workflow's
+            // real outcome. See issue #344.
+            PollingHelper.Result<GiteaActions.ActionRunSummary> result = PollingHelper.pollUntil(
+                    timeout,
+                    pollInterval,
+                    () -> {
+                        List<GiteaActions.ActionRunSummary> runs =
+                                gitea.actions().listWorkflowRuns(repositoryOwner, REPO_NAME);
+                        return runs.stream()
+                                .max(Comparator.comparing(GiteaActions.ActionRunSummary::createdAt))
+                                .filter(run -> "completed".equalsIgnoreCase(run.status())
+                                        || (run.conclusion() != null && !run.conclusion().isBlank()));
+                    });
+
+            if (result.timedOut() || result.value().isEmpty()) {
+                throw new IllegalStateException(
+                        "Timed out waiting for workflow '" + workflowFile + "' to reach a terminal state for "
+                                + repositoryOwner + "/" + REPO_NAME,
+                        result.lastError().orElse(null));
+            }
+
+            GiteaActions.ActionRunSummary terminalRun = result.value().get();
+            if (!"success".equalsIgnoreCase(terminalRun.conclusion())) {
+                dumpWorkflowJobLogs(terminalRun);
+                throw new IllegalStateException(
+                        "Workflow '" + workflowFile + "' did not succeed: runId=" + terminalRun.id()
+                                + " status=" + terminalRun.status()
+                                + " conclusion=" + terminalRun.conclusion()
+                                + " htmlUrl=" + terminalRun.htmlUrl());
+            }
 
             // Keep UI navigation as a debugging aid after the API confirms completion.
             GiteaActionsUiHelper.openJobPageForWorkflow(page, gitea, repositoryOwner, REPO_NAME, workflowFile);
-            log.info("Workflow '{}' finished successfully. Proceeding with Artifactory verification.", workflowFile);
+            log.info("Workflow '{}' finished successfully (runId={}). Proceeding with Artifactory verification.",
+                    workflowFile, terminalRun.id());
         } catch (AssertionError | RuntimeException exception) {
             gitea.logRepositoryActionsDiagnostics(repositoryOwner, REPO_NAME);
             gitea.logActionsRunnerDiagnostics("release workflow '" + workflowFile + "' failed");
             throw exception;
+        }
+    }
+
+    private void dumpWorkflowJobLogs(GiteaActions.ActionRunSummary run) {
+        try {
+            List<GiteaActions.ActionJobSummary> jobs =
+                    gitea.actions().listWorkflowJobs(repositoryOwner, REPO_NAME, run.id());
+            for (GiteaActions.ActionJobSummary job : jobs) {
+                log.error("Job '{}' (id={}) status={} conclusion={}",
+                        job.name(), job.id(), job.status(), job.conclusion());
+                try {
+                    byte[] logs = gitea.actions().downloadWorkflowJobLogs(
+                            repositoryOwner, REPO_NAME, run.id(), job.id());
+                    String logText = new String(logs, StandardCharsets.UTF_8);
+                    log.error("--- job '{}' logs ---\n{}\n--- end job '{}' logs ---",
+                            job.name(), logText, job.name());
+                } catch (RuntimeException logError) {
+                    log.warn("Failed to download logs for job '{}' (id={}): {}",
+                            job.name(), job.id(), logError.getMessage());
+                }
+            }
+        } catch (RuntimeException jobsError) {
+            log.warn("Failed to list jobs for run id={}: {}", run.id(), jobsError.getMessage());
         }
     }
 
