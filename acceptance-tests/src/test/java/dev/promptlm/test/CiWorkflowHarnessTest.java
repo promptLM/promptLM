@@ -76,7 +76,18 @@ import static org.assertj.core.api.Assertions.assertThat;
 class CiWorkflowHarnessTest implements WithAssertions {
 
     static final String REPO_NAME = "template-repo";
-    private static final String WORKFLOW_FILE = "deploy-artifactory.yml";
+    /**
+     * The 0.1.0 canonical publisher (bundle-release). Triggered via Gitea's
+     * {@code workflow_dispatch} REST endpoint — {@code bundle-release.yml}
+     * deliberately does not fire on {@code push}, because the org-wide
+     * standard (promptlm-release {@code ci-workflow-design.md} §2) is never
+     * to publish from {@code push: tags:} or push-to-{@code main}. See
+     * {@code docs/release-classes.md} for the platform-release vs
+     * bundle-release distinction.
+     */
+    private static final String WORKFLOW_FILE = "bundle-release.yml";
+    /** Version dispatched to the workflow. Any semver-shaped string works. */
+    private static final String DISPATCH_VERSION = "0.1.0";
     private static final Logger log = LoggerFactory.getLogger(CiWorkflowHarnessTest.class);
     private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(30))
@@ -137,7 +148,7 @@ class CiWorkflowHarnessTest implements WithAssertions {
     }
 
     @Test
-    @DisplayName("Dispatches deploy-artifactory.yml via harness and verifies artifacts")
+    @DisplayName("Dispatches bundle-release.yml via harness and verifies artifacts")
     void shouldExecuteCiWorkflowAndPublishArtifacts(@Gitea GiteaContainer gitea, @Artifactory ArtifactoryContainer artifactory) {
         log.info("Starting CI workflow harness test against Gitea webUrl={} apiUrl={} artifactoryUrl={}",
                 gitea.getWebUrl(), gitea.getApiUrl(), artifactory.getRunnerAccessibleApiUrl());
@@ -148,8 +159,13 @@ class CiWorkflowHarnessTest implements WithAssertions {
         log.info("Repository variables configured for {}/{}", gitea.getAdminUsername(), REPO_NAME);
 
         String seededCommitSha = repositorySeeder.seedTemplateRepository();
-        log.info("Template repository seeded (workflow should start) for {}/{} at commit {}",
+        log.info("Template repository seeded for {}/{} at commit {}",
                 gitea.getAdminUsername(), REPO_NAME, seededCommitSha);
+
+        // bundle-release.yml does not fire on push; explicitly dispatch it.
+        dispatchBundleReleaseWorkflow(gitea, gitea.getAdminUsername(), REPO_NAME, DISPATCH_VERSION);
+        log.info("Dispatched {} on {}/{} ref=main version={}",
+                WORKFLOW_FILE, gitea.getAdminUsername(), REPO_NAME, DISPATCH_VERSION);
 
         Duration timeout = Duration.ofMinutes(12);
         Duration pollInterval = Duration.ofSeconds(5);
@@ -172,16 +188,64 @@ class CiWorkflowHarnessTest implements WithAssertions {
     private void configureRepositoryVariables(GiteaContainer gitea, ArtifactoryContainer artifactory) {
         String owner = gitea.getAdminUsername();
         gitea.enableRepositoryActions(owner, REPO_NAME);
-        String runnerCloneUrl = gitea.buildRunnerAccessibleCloneUrl(owner, REPO_NAME);
-        log.info("Using runner-accessible clone URL: {}", runnerCloneUrl);
-        gitea.ensureRepositoryActionsVariable(owner, REPO_NAME, "REPO_REMOTE_URL", runnerCloneUrl);
-        gitea.ensureRepositoryActionsVariable(owner, REPO_NAME, "REPO_REMOTE_USERNAME", owner);
-        gitea.ensureRepositoryActionsVariable(owner, REPO_NAME, "REPO_REMOTE_TOKEN", gitea.getAdminToken());
-        gitea.ensureRepositoryActionsVariable(owner, REPO_NAME, "ARTIFACTORY_URL", artifactory.getRunnerAccessibleApiUrl());
-        gitea.ensureRepositoryActionsVariable(owner, REPO_NAME, "ARTIFACTORY_REPOSITORY", artifactory.getMavenRepositoryName());
-        gitea.ensureRepositoryActionsVariable(owner, REPO_NAME, "ARTIFACTORY_USERNAME", artifactory.getDeployerUsername());
-        gitea.ensureRepositoryActionsVariable(owner, REPO_NAME, "ARTIFACTORY_PASSWORD", artifactory.getDeployerPassword());
-        gitea.ensureRepositoryActionsVariable(owner, REPO_NAME, "PROMPTLM_UPLOAD_ARTIFACTS", "true");
+        // bundle-release.yml reads BUNDLE_RELEASE_* to override the shipped
+        // default (maven.pkg.github.com/<owner>/<repo>, GITHUB_TOKEN auth) and
+        // route the publish to the local Artifactory testcontainer playing the
+        // role of a Maven registry. Real-world repos rely on the default and
+        // configure none of these.
+        String bundleReleaseMavenUrl = artifactory.getRunnerAccessibleApiUrl()
+                + "/" + artifactory.getMavenRepositoryName();
+        gitea.ensureRepositoryActionsVariable(owner, REPO_NAME,
+                "BUNDLE_RELEASE_MAVEN_URL", bundleReleaseMavenUrl);
+        gitea.ensureRepositoryActionsVariable(owner, REPO_NAME,
+                "BUNDLE_RELEASE_USERNAME", artifactory.getDeployerUsername());
+        gitea.ensureRepositoryActionsVariable(owner, REPO_NAME,
+                "BUNDLE_RELEASE_PASSWORD", artifactory.getDeployerPassword());
+    }
+
+    /**
+     * POST {@code /api/v1/repos/{owner}/{repo}/actions/workflows/{file}/dispatches}
+     * to fire {@code bundle-release.yml} on {@code main}. Gitea Actions implements
+     * the same REST contract as GitHub Actions; using the API directly avoids
+     * polluting the shipped workflow with a push-to-main trigger that the org
+     * standard forbids.
+     */
+    private void dispatchBundleReleaseWorkflow(GiteaContainer gitea,
+                                                String owner,
+                                                String repository,
+                                                String version) {
+        String dispatchUrl = gitea.getApiUrl()
+                + "/repos/" + owner + "/" + repository
+                + "/actions/workflows/" + WORKFLOW_FILE + "/dispatches";
+        // Boolean inputs over the workflow_dispatch API are sent as strings;
+        // the workflow's `if: github.event.inputs.dry-run == 'true'` guard
+        // compares against the string form.
+        String body = """
+                {"ref":"main","inputs":{"version":"%s","dry-run":"false"}}
+                """.formatted(version);
+        java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder()
+                .uri(java.net.URI.create(dispatchUrl))
+                .header("Authorization", "token " + gitea.getAdminToken())
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json")
+                .POST(java.net.http.HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
+                .build();
+        try {
+            java.net.http.HttpResponse<String> response =
+                    HTTP_CLIENT.send(request, java.net.http.HttpResponse.BodyHandlers.ofString());
+            // Gitea / GitHub return 204 No Content on a successful dispatch.
+            if (response.statusCode() / 100 != 2) {
+                gitea.logRepositoryActionsDiagnostics(owner, repository);
+                throw new IllegalStateException(
+                        "Failed to dispatch " + WORKFLOW_FILE + ": status=" + response.statusCode()
+                                + " body=" + response.body());
+            }
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to POST workflow dispatch", e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while dispatching workflow", e);
+        }
     }
 
     private GiteaActions.ActionExecutionReport waitForWorkflowExecution(GiteaContainer gitea,

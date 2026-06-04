@@ -145,8 +145,7 @@ class ZipFileRepositoryTemplateExtractorReleaseToggleTest {
             builder.write(".promptlm/artifacts.toml", "[project]");
             builder.write("prompts/examples/hello.md", "hello");
             builder.write(".github/workflows/build-artifacts.yml", "name: build");
-            builder.write(".github/workflows/deploy-artifacts.yml", "name: deploy");
-            builder.write(".github/artifactory-config.yml", "config");
+            builder.write(".github/workflows/bundle-release.yml", "name: bundle-release");
             builder.write("tools/release/build-artifacts", "#!/bin/sh");
             builder.write("pom.xml", "<project/>");
         });

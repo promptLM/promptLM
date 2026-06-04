@@ -137,7 +137,7 @@ mvn test -Dtest=HappyPathUserJourneyTest -Dplaywright.headless=false -Dplaywrigh
 #### Workflow and integration-specific parameters
 
 - `-Dpromptlm.gitea.actions.workflow.file=<workflow-file>`
-  - Default: `deploy-artifactory.yml`
+  - Default: `bundle-release.yml`
   - Controls which Gitea Actions workflow is observed during release verification.
 - `-DOPENAI_API_KEY=<key>`
   - Optional override used when repository action variables are configured in tests.
@@ -151,7 +151,7 @@ mvn test \
   -Dtest=HappyPathUserJourneyTest \
   -Dplaywright.headless=false \
   -Dplaywright.slowmo=800 \
-  -Dpromptlm.gitea.actions.workflow.file=deploy-artifactory.yml \
+  -Dpromptlm.gitea.actions.workflow.file=bundle-release.yml \
   -DOPENAI_API_KEY=your-key
 ```
 

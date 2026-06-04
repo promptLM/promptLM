@@ -45,10 +45,8 @@ class RepositoryTemplateZipContentsTest {
             }
 
             Set<String> expectedEntries = new TreeSet<>(List.of(
-                    ".github/artifactory-config.yml",
                     ".github/workflows/build-artifacts.yml",
-                    ".github/workflows/deploy-artifacts.yml",
-                    ".github/workflows/deploy-artifactory.yml",
+                    ".github/workflows/bundle-release.yml",
                     ".github/workflows/release.yml",
                     ".github/workflows/validate.yml",
                     ".promptlm/artifacts.toml",

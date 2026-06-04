@@ -6,78 +6,47 @@ This repository contains prompts for {{PROJECT_DESCRIPTION}}.
 
 Add your prompts to the `prompts/` directory. Each prompt can be a separate file or organized in subdirectories.
 
-## Usage Modes
+## How releases work
 
-This repository can be used in one of two modes. The mode is selected by the `release.enabled` flag in `promptlm.yml`.
+This is a **bundle-release** repository: it publishes a versioned prompt bundle (a Maven jar containing the `prompts/` tree and `.promptlm/` metadata) to a Maven registry on every release. The default registry is **GitHub Packages** (`maven.pkg.github.com/<owner>/<repo>`); the workflow authenticates with the built-in `GITHUB_TOKEN`, so out-of-the-box no extra configuration is required.
 
-### Mode 1 — Prompt management (default)
+> See `docs/release-classes.md` in the promptLM app for the platform-release vs bundle-release distinction.
 
-Use this repository as a plain git store for your prompts. Edit prompts under `prompts/`, commit, push. With `release.enabled: false` in `promptlm.yml` (the default), the generated repository ships **without** CI/CD workflows, build scripts, `pom.xml`, or `.promptlm/artifacts.toml` — it is the minimal prompt-management layout.
+A prompt-management-only mode (no CI/CD, no Maven coordinates) is planned for 0.2.0; for 0.1.0 every generated repo ships the bundle-release stack.
 
-### Mode 2 — Prompt releases (opt-in)
+## Cutting a release
 
-Use GitHub Actions to validate, package, and publish your prompts as versioned artifacts. Set `release.enabled: true` in `promptlm.yml`, configure `.promptlm/artifacts.toml`, and tag a commit (`vX.Y.Z`) to cut a release.
+1. Create a GitHub Release with a semver tag (`vX.Y.Z`) — either in the UI, via `gh release create`, or via release-please.
+2. The `Publish Prompt Bundle (GitHub Packages)` workflow (`bundle-release.yml`) fires on the `release: created` event, validates inputs, builds the jar via `tools/release/build-artifacts`, and publishes it via `tools/release/publish-artifacts`.
 
-If you also need to publish to Artifactory, set the variables and secrets listed under [Environment Variables](#environment-variables).
+For ad-hoc releases (or to dry-run a build), trigger `bundle-release.yml` manually from the Actions tab with an explicit `version` input.
 
-## GitHub Actions Workflows
+## Workflows
 
-The generated repository ships with a small set of GitHub Actions workflows under `.github/workflows/`. Which workflows are present depends on this repository's configuration.
+The generated repository ships these GitHub Actions workflows under `.github/workflows/`:
 
-### 📦 Artifact build (`build-artifacts.yml`)
+| Workflow | Triggers | What it does |
+| --- | --- | --- |
+| `validate.yml` | Push, pull request | Validates prompt files (non-empty, required metadata fields). |
+| `release.yml` | Manual dispatch | Validates, packages, and attaches a `.zip` artifact to a GitHub Release. Provides a release-cut button when not using release-please. |
+| `bundle-release.yml` | `release.created`, manual dispatch | Publishes the prompt bundle jar to the configured Maven registry (default: GitHub Packages). |
+| `build-artifacts.yml` | Manual dispatch | Builds artifacts locally (no publish), for inspecting what a release would contain. |
 
-- **Triggers**: Manual dispatch.
-- **Actions**: Builds prompt artifacts for Java, Python, and JS based on `.promptlm/artifacts.toml`.
-- **Behavior**: If no targets are configured, the build is skipped (no error).
+## Configuration
 
-### 🚀 Artifact deploy (`deploy-artifacts.yml`)
+### Default — GitHub Packages
 
-- **Triggers**: Tag push (`v*`), manual dispatch.
-- **Actions**: Builds artifacts and publishes them when `deploy.enabled=true` in `.promptlm/artifacts.toml`.
-- **Behavior**: Deployment is skipped when disabled or when no targets are configured.
+No configuration required. The default trigger chain (`release.created` → `bundle-release.yml`) authenticates with `secrets.GITHUB_TOKEN`, builds the jar with the coordinates filled into `pom.xml` / `.promptlm/artifacts.toml` at rollout time, and publishes to `maven.pkg.github.com/<owner>/<repo>`.
 
-### ✅ Prompt validation (`validate.yml`) — when release capability is enabled
+### Optional — alternate Maven registry
 
-- **Triggers**: Push, pull request.
-- **Actions**: Validates prompts before packaging (non-empty prompt files, required metadata fields).
-- **Availability**: Present when `release.enabled: true` in `promptlm.yml`.
+To publish to a different Maven registry (e.g. Artifactory or a self-hosted Nexus), set repository variables / secrets:
 
-### 🏷️ Release (`release.yml`) — when release capability is enabled
+- `BUNDLE_RELEASE_MAVEN_URL`: full registry URL (e.g. `https://artifactory.example.com/artifactory/libs-release-local`)
+- `BUNDLE_RELEASE_USERNAME`: deploy username (repository variable)
+- `BUNDLE_RELEASE_PASSWORD`: deploy password or API token (repository secret)
 
-- **Triggers**: Tag push (`v*.*.*`), manual dispatch.
-- **Actions**: Validates, packages, generates a release manifest with checksums, and publishes a GitHub Release.
-- **Availability**: Present when `release.enabled: true` in `promptlm.yml`.
-
-### 🏭 Deploy to Artifactory (`deploy-artifactory.yml`) — when Artifactory deployment is configured
-
-- **Triggers**: Push to `main`, manual dispatch.
-- **Actions**: Resolves version, builds in-place, and deploys artifacts to Artifactory.
-- **Availability**: Present when Artifactory deployment is configured. Requires the variables and secrets listed under [Environment Variables](#environment-variables).
-
-## Environment Variables
-
-For `deploy-artifactory.yml`, configure these repository variables or secrets when you want the generated repository to publish to Artifactory:
-
-- `ARTIFACTORY_URL`: Base Artifactory URL, for example `https://artifactory.example.com/artifactory`
-- `ARTIFACTORY_REPOSITORY`: Target Maven repository key
-- `ARTIFACTORY_USERNAME`: Artifactory deploy username
-- `ARTIFACTORY_PASSWORD`: Artifactory deploy password or token
-
-Optional checkout overrides:
-
-- `REPO_REMOTE_URL`: Override checkout remote URL for nonstandard runner/network topologies
-- `REPO_REMOTE_USERNAME`: Override checkout username when `REPO_REMOTE_URL` is set
-- `REPO_REMOTE_TOKEN`: Override checkout token when `REPO_REMOTE_URL` is set
-
-In normal GitHub or Gitea workflows, the checkout logic should usually rely on `${{ github.server_url }}` and `${{ github.token }}` instead of these overrides.
-
-## Usage
-
-1. Add your prompt specifications to the `prompts/` directory.
-2. Update `.promptlm/prompts-meta.json` with metadata.
-3. Configure `.promptlm/artifacts.toml` (including `project.version`) for optional artifact builds and deployment.
-4. Push changes to `main` to trigger configured workflows.
-5. Use manual workflow dispatch for controlled artifact builds or deploys when needed.
+These override the defaults inside `bundle-release.yml` without any code changes.
 
 ## License
 

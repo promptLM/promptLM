@@ -17,10 +17,13 @@
                 <include>promptlm.yml</include>
                 <include>pom.xml</include>
                 <include>README.md</include>
-                <include>.github/artifactory-config.yml</include>
+                <!--
+                    0.1.0 bundle-release surface. The Artifactory and
+                    multi-language deploy-artifacts workflows have been parked
+                    under .github/parked/ until Mode-1 / non-Java targets ship.
+                -->
                 <include>.github/workflows/build-artifacts.yml</include>
-                <include>.github/workflows/deploy-artifacts.yml</include>
-                <include>.github/workflows/deploy-artifactory.yml</include>
+                <include>.github/workflows/bundle-release.yml</include>
                 <include>.github/workflows/release.yml</include>
                 <include>.github/workflows/validate.yml</include>
             </includes>

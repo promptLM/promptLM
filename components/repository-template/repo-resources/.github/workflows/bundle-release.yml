@@ -1,0 +1,164 @@
+# bundle-release — the canonical 0.1.0 publisher for prompt bundles.
+#
+# Builds a versioned prompt-bundle jar from `prompts/` + `.promptlm/` and
+# publishes it to GitHub Packages (`maven.pkg.github.com/<owner>/<repo>`) using
+# the built-in `GITHUB_TOKEN`. See `docs/release-classes.md` in the promptLM
+# app for the platform-release vs bundle-release distinction.
+#
+# Triggers
+# --------
+# - release.created    Fires when a GitHub Release is created (manually via
+#                      the UI or by release-please). Uses the release tag as
+#                      the publish version. This is the production path.
+# - workflow_dispatch  Manual trigger from the Actions tab. Required input
+#                      `version` (e.g. `1.2.3`). Used for ad-hoc releases and
+#                      exercised by the promptLM acceptance tests.
+#
+# We deliberately do NOT trigger on `push: tags:`. Tags are movable, leave no
+# audit trail, and provide no Release object — the org-wide rule is captured
+# in `promptlm-release/docs/ci-workflow-design.md` §2.
+name: Publish Prompt Bundle (GitHub Packages)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. 1.2.3) — required when running manually'
+        required: true
+        type: string
+      dry-run:
+        description: 'Build the bundle but do not publish'
+        required: false
+        type: boolean
+        default: false
+  release:
+    types: [created]
+
+concurrency:
+  group: bundle-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  # Maven registry URL. Defaults to `maven.pkg.github.com/<owner>/<repo>`; the
+  # promptLM acceptance test overrides this via a repository variable of the
+  # same name to point at a local Artifactory testcontainer playing the role
+  # of a Maven registry.
+  BUNDLE_RELEASE_MAVEN_URL: ${{ vars.BUNDLE_RELEASE_MAVEN_URL || format('https://maven.pkg.github.com/{0}', github.repository) }}
+  # Credentials. Default to GITHUB_ACTOR + GITHUB_TOKEN (which authorises
+  # against GitHub Packages when `permissions: packages: write`). Override
+  # via repository variable / secret for non-GitHub registries.
+  BUNDLE_RELEASE_USERNAME: ${{ vars.BUNDLE_RELEASE_USERNAME || github.actor }}
+  BUNDLE_RELEASE_PASSWORD: ${{ secrets.BUNDLE_RELEASE_PASSWORD || secrets.GITHUB_TOKEN }}
+
+jobs:
+  validate-inputs:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+    steps:
+      - name: Resolve and validate version
+        id: resolve
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          if [[ "${EVENT_NAME}" == "release" ]]; then
+            VERSION="${RELEASE_TAG#v}"
+          else
+            VERSION="${INPUT_VERSION#v}"
+          fi
+          if [[ -z "${VERSION}" ]]; then
+            echo "::error::release version could not be resolved"
+            exit 1
+          fi
+          if [[ "${VERSION}" == *-SNAPSHOT ]]; then
+            echo "::error::refusing to publish a -SNAPSHOT version (${VERSION})"
+            exit 1
+          fi
+          if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][A-Za-z0-9._-]+)?$ ]]; then
+            echo "::error::version '${VERSION}' is not a valid semver"
+            exit 1
+          fi
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "Resolved bundle-release version: ${VERSION}"
+
+  verify:
+    needs: validate-inputs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Validate prompts
+        run: |
+          chmod +x scripts/validate-prompts.sh
+          scripts/validate-prompts.sh
+
+  deploy:
+    needs: [validate-inputs, verify]
+    runs-on: ubuntu-latest
+    env:
+      BUNDLE_VERSION: ${{ needs.validate-inputs.outputs.version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build prompt-bundle jar
+        run: ./tools/release/build-artifacts --target java
+
+      - name: Configure Maven settings.xml for the bundle-release registry
+        shell: bash
+        run: |
+          mkdir -p "${HOME}/.m2"
+          cat > "${HOME}/.m2/settings.xml" << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                    xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0
+                                        http://maven.apache.org/xsd/settings-1.0.0.xsd">
+            <servers>
+              <server>
+                <id>github</id>
+                <username>${env.BUNDLE_RELEASE_USERNAME}</username>
+                <password>${env.BUNDLE_RELEASE_PASSWORD}</password>
+              </server>
+            </servers>
+          </settings>
+          EOF
+
+      - name: Publish bundle (dry-run skipped)
+        if: ${{ github.event.inputs.dry-run != 'true' }}
+        run: ./tools/release/publish-artifacts --target java --profile github
+
+      - name: Dry-run summary
+        if: ${{ github.event.inputs.dry-run == 'true' }}
+        run: echo 'Dry run — bundle built but not published.'
+
+      - name: Summarise
+        run: |
+          {
+            echo "## Bundle-release"
+            echo ""
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Version | \`${BUNDLE_VERSION}\` |"
+            echo "| Registry | \`${BUNDLE_RELEASE_MAVEN_URL}\` |"
+            echo "| Dry run | \`${{ github.event.inputs.dry-run || 'false' }}\` |"
+          } >> "${GITHUB_STEP_SUMMARY}"

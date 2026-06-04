@@ -318,6 +318,11 @@ public class HappyPathUserJourneyTest {
     @Timeout(value = 20, unit = TimeUnit.MINUTES)
     void releaseProject() {
         navigateToGitea();
+        // bundle-release.yml triggers on workflow_dispatch + release.created,
+        // not push-to-main — earlier @Order steps push commits but cannot fire
+        // the workflow by themselves. Dispatch it explicitly (mirrors
+        // CiWorkflowHarnessTest, #311).
+        dispatchBundleReleaseWorkflow("0.1.0");
         waitUntilBuildSucceeded();
         JsonNode deployments = waitForArtifactoryDeployments();
         log.info("Artifactory deployments: {}", deployments);
@@ -459,10 +464,18 @@ public class HappyPathUserJourneyTest {
                 "artifactory.runner.api.url",
                 System.getProperty("artifactory.internal.api.url", artifactoryContainer.getRunnerAccessibleApiUrl()));
 
-        gitea.ensureRepositoryActionsVariable(repositoryOwner, REPO_NAME, "ARTIFACTORY_URL", artifactoryRunnerUrl);
-        gitea.ensureRepositoryActionsVariable(repositoryOwner, REPO_NAME, "ARTIFACTORY_REPOSITORY", artifactoryContainer.getMavenRepositoryName());
-        gitea.ensureRepositoryActionsVariable(repositoryOwner, REPO_NAME, "ARTIFACTORY_USERNAME", artifactoryContainer.getDeployerUsername());
-        gitea.ensureRepositoryActionsVariable(repositoryOwner, REPO_NAME, "ARTIFACTORY_PASSWORD", artifactoryContainer.getDeployerPassword());
+        // bundle-release.yml reads BUNDLE_RELEASE_* to override the shipped
+        // default (maven.pkg.github.com/<owner>/<repo>, GITHUB_TOKEN auth) and
+        // publish to the local Artifactory testcontainer instead. Real-world
+        // repos rely on the default and configure none of these. Mirrors the
+        // wiring in CiWorkflowHarnessTest (#311).
+        String bundleReleaseMavenUrl = artifactoryRunnerUrl + "/" + artifactoryContainer.getMavenRepositoryName();
+        gitea.ensureRepositoryActionsVariable(repositoryOwner, REPO_NAME,
+                "BUNDLE_RELEASE_MAVEN_URL", bundleReleaseMavenUrl);
+        gitea.ensureRepositoryActionsVariable(repositoryOwner, REPO_NAME,
+                "BUNDLE_RELEASE_USERNAME", artifactoryContainer.getDeployerUsername());
+        gitea.ensureRepositoryActionsVariable(repositoryOwner, REPO_NAME,
+                "BUNDLE_RELEASE_PASSWORD", artifactoryContainer.getDeployerPassword());
 
         artifactoryVariablesConfigured = true;
     }
@@ -472,8 +485,50 @@ public class HappyPathUserJourneyTest {
      * This method navigates to the job page and waits for the job status to be "Success".
      * The timeout for the wait is 5 minutes.
      */
+    /**
+     * Fire {@code bundle-release.yml} via Gitea's {@code workflow_dispatch}
+     * REST endpoint. Same wire format as GitHub Actions. Mirrors the helper
+     * in {@code CiWorkflowHarnessTest} (#311) — pulled into both tests rather
+     * than a shared support class for now because they share no other state.
+     */
+    private void dispatchBundleReleaseWorkflow(String version) {
+        String workflowFile = System.getProperty(
+                "promptlm.gitea.actions.workflow.file", "bundle-release.yml");
+        String dispatchUrl = gitea.getApiUrl()
+                + "/repos/" + repositoryOwner + "/" + REPO_NAME
+                + "/actions/workflows/" + workflowFile + "/dispatches";
+        String body = """
+                {"ref":"main","inputs":{"version":"%s","dry-run":"false"}}
+                """.formatted(version);
+        java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder()
+                .uri(java.net.URI.create(dispatchUrl))
+                .header("Authorization", "token " + gitea.getAdminToken())
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json")
+                .POST(java.net.http.HttpRequest.BodyPublishers.ofString(
+                        body, java.nio.charset.StandardCharsets.UTF_8))
+                .build();
+        try {
+            java.net.http.HttpResponse<String> response =
+                    HTTP_CLIENT.send(request, java.net.http.HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() / 100 != 2) {
+                gitea.logRepositoryActionsDiagnostics(repositoryOwner, REPO_NAME);
+                throw new IllegalStateException(
+                        "Failed to dispatch " + workflowFile + ": status="
+                                + response.statusCode() + " body=" + response.body());
+            }
+            log.info("Dispatched {} on {}/{} ref=main version={}",
+                    workflowFile, repositoryOwner, REPO_NAME, version);
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("Failed to POST workflow dispatch", e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while dispatching workflow", e);
+        }
+    }
+
     private void waitUntilBuildSucceeded() {
-        String workflowFile = System.getProperty("promptlm.gitea.actions.workflow.file", "deploy-artifactory.yml");
+        String workflowFile = System.getProperty("promptlm.gitea.actions.workflow.file", "bundle-release.yml");
         try {
             int removedCiTasks = gitea.cleanupActionsTaskContainers("workflow-prompt-repository-ci");
             if (removedCiTasks > 0) {

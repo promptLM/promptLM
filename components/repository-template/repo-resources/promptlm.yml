@@ -1,39 +1,30 @@
 # promptLM repository configuration.
 #
 # This file is the canonical entry point for promptLM behaviour in this
-# repository. The most important setting is `release.enabled`:
+# repository. The release block below describes how this repo's bundle is
+# built and published; see `README.md` and `docs/release-classes.md` in the
+# promptLM app for the bundle-release concept.
 #
-#   release.enabled: true   (current default) — Mode 2, "Prompt releases"
-#     The repository ships GitHub Actions workflows, build scripts under
-#     `tools/`, `.promptlm/artifacts.toml`, and a `pom.xml` for building,
-#     validating, and publishing versioned prompt artifacts.
-#
-#   release.enabled: false                    — Mode 1, "Prompt management"
-#     The repository is a plain git store for prompts under `prompts/`.
-#     No CI/CD workflows, no Maven/Artifactory tooling, no `artifacts.toml`,
-#     and no `pom.xml` are generated.
-#
-# Note: the Mode-2 default is a stopgap (see issue #276) until the
-# progressive-disclosure UX in #275 ships, at which point the default
-# reverts to Mode 1 with an opt-in "Enable releases" action.
-#
-# Flip `release.enabled` and regenerate the repository to switch modes.
+# 0.1.0 ships a single mode: bundle-release (Maven jar → GitHub Packages).
+# A "prompt management only" mode (no CI/CD, no Maven coordinates) is planned
+# for 0.2.0 — when it lands, `release.enabled: false` will skip emitting the
+# release workflows / pom.xml / artifacts.toml at rollout time. Until then
+# the flag is informational; the workflows ship regardless.
 release:
   enabled: true
   provider: github-actions
   trigger:
-    type: tag
-    tagPattern: "v*.*.*"
+    type: release-created
     workflowDispatch: true
   artifact:
     name: "${repository.name}"
-    format: zip
-    outputDirectory: dist
+    format: jar
+    outputDirectory: dist/java
     includeManifest: true
     includeChecksums: true
   versioning:
     strategy: semver
-    source: git-tag
+    source: github-release
   validation:
     enabled: true
     failOnEmpty: true

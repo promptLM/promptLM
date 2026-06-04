@@ -10,6 +10,7 @@ if sys.version_info < (3, 11):
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import tomllib  # Python 3.11+
@@ -42,6 +43,12 @@ def resolve_targets(manifest: dict) -> list[str]:
 
 
 def resolve_version(manifest: dict) -> str:
+    # CI workflows (notably bundle-release.yml) inject the release version via
+    # $BUNDLE_VERSION so the same artifacts.toml can serve every release
+    # without an in-flight commit to bump project.version.
+    override = os.environ.get("BUNDLE_VERSION", "").strip()
+    if override:
+        return override
     project = manifest.get("project", {})
     version = project.get("version")
     if not version:
