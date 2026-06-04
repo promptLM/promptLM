@@ -11,6 +11,7 @@ name: oss-checks
 # and surface duplicate failures.
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
