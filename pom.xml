@@ -6,7 +6,7 @@
     <parent>
         <groupId>dev.promptlm</groupId>
         <artifactId>promptlm-parent</artifactId>
-        <version>0.1.0-SNAPSHOT</version>
+        <version>0.1.0</version>
         <relativePath>../promptlm-platform/pom.xml</relativePath>
     </parent>
 
