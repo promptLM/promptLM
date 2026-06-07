@@ -159,19 +159,16 @@ class ZipFileRepositoryTemplateExtractorSubstitutionTest {
         // where downstream tooling would consume it as a real value.
         //
         // Known-legitimate references (allow-listed):
-        //   - .promptlm/artifacts.toml: Artifactory / custom-profile URLs that genuinely
-        //     require the user to fill in an external service URL we cannot know at
-        //     rollout time (REPLACE_ME_ARTIFACTORY_URL, REPLACE_ME_custom_*,
-        //     REPLACE_ME_pypi_repo_url for the GitHub profile — see comment in the file).
-        //     The GitHub Maven URL is substituted via {{REPO_OWNER}}/{{REPO_NAME}} so it
-        //     does NOT appear in the allow-list.
-        //   - .github/artifactory-config.yml: REFERENCE ONLY per issue #325 (P1).
-        //   - scripts/package-prompts.sh: documents in a comment that
-        //     REPLACE_ME_* values trigger a fallback — describing the string, not
-        //     using it as a coordinate.
+        //   - .promptlm/artifacts.toml: opt-in Artifactory / custom-profile URLs that
+        //     genuinely require the user to fill in an external service URL we cannot know
+        //     at rollout time (REPLACE_ME_ARTIFACTORY_URL, REPLACE_ME_custom_*,
+        //     REPLACE_ME_pypi_repo_url under the bundle-release github profile — GitHub
+        //     Packages has no generic PyPI endpoint). The GitHub Maven URL itself is
+        //     substituted via {{REPO_OWNER}}/{{REPO_NAME}}, so it does NOT appear here.
+        //   - scripts/package-prompts.sh: documents in a comment that REPLACE_ME_* values
+        //     trigger a fallback — describing the string, not using it as a coordinate.
         Set<String> allowList = Set.of(
                 ".promptlm/artifacts.toml",
-                ".github/artifactory-config.yml",
                 "scripts/package-prompts.sh");
         try (Stream<Path> walk = Files.walk(tempDir)) {
             walk.filter(Files::isRegularFile)

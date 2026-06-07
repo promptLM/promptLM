@@ -66,8 +66,16 @@ class RepositoryTemplateActSmokeTest {
             configureOriginRemote(repositoryDir, bareRemoteRepository, tempDir);
             pushMainBranch(repositoryDir, bareRemoteRepository, tempDir);
 
-            Path eventFile = tempDir.resolve("push-event.json");
-            Files.writeString(eventFile, "{\"ref\":\"refs/heads/main\"}\n", StandardCharsets.UTF_8);
+            // bundle-release.yml triggers on workflow_dispatch (with required
+            // `version` input) + release.created. Smoke against the cheap
+            // `verify` job — it runs validate-prompts.sh under a real GitHub
+            // Actions shell which is enough to catch YAML / script regressions
+            // locally. The end-to-end deploy is covered by CiWorkflowHarnessTest.
+            Path eventFile = tempDir.resolve("workflow-dispatch-event.json");
+            Files.writeString(
+                    eventFile,
+                    "{\"inputs\":{\"version\":\"0.1.0\",\"dry-run\":\"true\"}}\n",
+                    StandardCharsets.UTF_8);
 
             Path actExecutable = resolveActExecutable();
             Map<String, String> actEnvironment = resolveActEnvironment(tempDir);
@@ -75,16 +83,13 @@ class RepositoryTemplateActSmokeTest {
             CommandResult result = runCommand(
                     List.of(
                             actExecutable.toString(),
-                            "push",
+                            "workflow_dispatch",
                             "-b",
                             "-C", repositoryDir.toString(),
                             "-e", eventFile.toString(),
-                            "-W", ".github/workflows/deploy-artifactory.yml",
-                            "-j", "build",
-                            "-P", "ubuntu-latest=" + ACT_PLATFORM_IMAGE,
-                            "--var", "REPO_REMOTE_URL=file://" + bareRemoteRepository.toAbsolutePath(),
-                            "--var", "REPO_REMOTE_USERNAME=testuser",
-                            "--var", "REPO_REMOTE_TOKEN=dummy-token"
+                            "-W", ".github/workflows/bundle-release.yml",
+                            "-j", "verify",
+                            "-P", "ubuntu-latest=" + ACT_PLATFORM_IMAGE
                     ),
                     repositoryDir,
                     actLog,
@@ -95,11 +100,6 @@ class RepositoryTemplateActSmokeTest {
                     .withFailMessage("act smoke test failed. Full log:%n%s", result.output())
                     .isZero();
             assertThat(result.output()).contains("Job succeeded");
-
-            try (var files = Files.list(repositoryDir)) {
-                assertThat(files.map(path -> path.getFileName().toString()))
-                        .anyMatch(name -> name.startsWith("prompts-") && name.endsWith(".jar"));
-            }
         } finally {
             deleteDirectoryQuietly(tempDir);
         }

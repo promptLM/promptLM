@@ -137,23 +137,53 @@
         </plugins>
     </build>
 
-    <!-- Distribution Management - Configure where to deploy artifacts -->
+    <!--
+        Distribution management — bundle-release default.
+
+        Out of the box the bundle-release workflow publishes via
+        `mvn deploy:deploy-file` against ${env.BUNDLE_RELEASE_MAVEN_URL}, so
+        these <distributionManagement> entries are only used when somebody
+        invokes `mvn deploy` directly (e.g. locally).  The default points at
+        GitHub Packages for the current repository so that local invocation
+        matches the CI default.  Override via the `artifactory` profile
+        below when you want to publish to Artifactory instead.
+    -->
     <distributionManagement>
         <repository>
-            <id>artifactory</id>
-            <name>Artifactory Release Repository</name>
-            <url>${artifactory.url}/${artifactory.repository}</url>
+            <id>github</id>
+            <name>GitHub Packages</name>
+            <url>https://maven.pkg.github.com/${env.GITHUB_REPOSITORY}</url>
         </repository>
         <snapshotRepository>
-            <id>artifactory</id>
-            <name>Artifactory Snapshot Repository</name>
-            <url>${artifactory.url}/${artifactory.repository}</url>
+            <id>github</id>
+            <name>GitHub Packages (snapshots)</name>
+            <url>https://maven.pkg.github.com/${env.GITHUB_REPOSITORY}</url>
         </snapshotRepository>
     </distributionManagement>
 
-    <!-- Profiles for different deployment scenarios -->
     <profiles>
-        <!-- Development profile - opt-in via `-Pdev`. Never active by default; CI must never inherit localhost coordinates. -->
+        <!--
+            Opt-in Artifactory profile.  Activate with `-Partifactory` (plus
+            either `-Pdev` for local Artifactory or `-Pprod` for the URL/repo
+            pair from the ARTIFACTORY_URL / ARTIFACTORY_REPOSITORY env vars).
+            Off by default; CI never inherits these coordinates.
+        -->
+        <profile>
+            <id>artifactory</id>
+            <distributionManagement>
+                <repository>
+                    <id>artifactory</id>
+                    <name>Artifactory Release Repository</name>
+                    <url>${artifactory.url}/${artifactory.repository}</url>
+                </repository>
+                <snapshotRepository>
+                    <id>artifactory</id>
+                    <name>Artifactory Snapshot Repository</name>
+                    <url>${artifactory.url}/${artifactory.repository}</url>
+                </snapshotRepository>
+            </distributionManagement>
+        </profile>
+
         <profile>
             <id>dev</id>
             <properties>
@@ -162,25 +192,12 @@
             </properties>
         </profile>
 
-        <!-- Production profile -->
         <profile>
             <id>prod</id>
             <properties>
                 <artifactory.url>${env.ARTIFACTORY_URL}</artifactory.url>
                 <artifactory.repository>${env.ARTIFACTORY_REPOSITORY}</artifactory.repository>
             </properties>
-        </profile>
-
-        <!-- GitHub Packages profile -->
-        <profile>
-            <id>github</id>
-            <distributionManagement>
-                <repository>
-                    <id>github</id>
-                    <name>GitHub Packages</name>
-                    <url>https://maven.pkg.github.com/${env.GITHUB_REPOSITORY}</url>
-                </repository>
-            </distributionManagement>
         </profile>
     </profiles>
 </project>

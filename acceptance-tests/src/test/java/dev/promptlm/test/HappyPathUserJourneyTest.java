@@ -37,7 +37,12 @@ import dev.promptlm.testutils.artifactory.Artifactory;
 import dev.promptlm.testutils.artifactory.ArtifactoryContainer;
 import dev.promptlm.testutils.artifactory.WithArtifactory;
 import dev.promptlm.testutils.gitea.Gitea;
+import dev.promptlm.testutils.gitea.GiteaActions;
+import dev.promptlm.testutils.gitea.GiteaActionsDiagnostics;
+import dev.promptlm.testutils.gitea.GiteaActionsLogFile;
+import dev.promptlm.testutils.gitea.GiteaActionsTaskContainerLog;
 import dev.promptlm.testutils.gitea.GiteaContainer;
+import dev.promptlm.testutils.gitea.GiteaWorkflowException;
 import dev.promptlm.testutils.gitea.WithGitea;
 import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.*;
@@ -55,6 +60,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -318,7 +325,12 @@ public class HappyPathUserJourneyTest {
     @Timeout(value = 20, unit = TimeUnit.MINUTES)
     void releaseProject() {
         navigateToGitea();
-        waitUntilBuildSucceeded();
+        // bundle-release.yml triggers on workflow_dispatch + release.created,
+        // not push-to-main — earlier @Order steps push commits but cannot fire
+        // the workflow by themselves. Dispatch it explicitly (mirrors
+        // CiWorkflowHarnessTest, #311).
+        String dispatchSha = dispatchBundleReleaseWorkflow("0.1.0");
+        waitUntilBuildSucceeded(dispatchSha);
         JsonNode deployments = waitForArtifactoryDeployments();
         log.info("Artifactory deployments: {}", deployments);
 
@@ -459,12 +471,63 @@ public class HappyPathUserJourneyTest {
                 "artifactory.runner.api.url",
                 System.getProperty("artifactory.internal.api.url", artifactoryContainer.getRunnerAccessibleApiUrl()));
 
-        gitea.ensureRepositoryActionsVariable(repositoryOwner, REPO_NAME, "ARTIFACTORY_URL", artifactoryRunnerUrl);
-        gitea.ensureRepositoryActionsVariable(repositoryOwner, REPO_NAME, "ARTIFACTORY_REPOSITORY", artifactoryContainer.getMavenRepositoryName());
-        gitea.ensureRepositoryActionsVariable(repositoryOwner, REPO_NAME, "ARTIFACTORY_USERNAME", artifactoryContainer.getDeployerUsername());
-        gitea.ensureRepositoryActionsVariable(repositoryOwner, REPO_NAME, "ARTIFACTORY_PASSWORD", artifactoryContainer.getDeployerPassword());
+        // bundle-release.yml reads BUNDLE_RELEASE_* to override the shipped
+        // default (maven.pkg.github.com/<owner>/<repo>, GITHUB_TOKEN auth) and
+        // publish to the local Artifactory testcontainer instead. Real-world
+        // repos rely on the default and configure none of these.
+        //
+        // Note the split: the workflow reads URL + USERNAME from `vars.*` and
+        // PASSWORD from `secrets.*` (so the password is masked in logs). The
+        // Gitea support library only exposes a vars helper today; for the
+        // secret we call Gitea's /actions/secrets API inline. Mirrors the
+        // wiring in CiWorkflowHarnessTest (#311).
+        String bundleReleaseMavenUrl = artifactoryRunnerUrl + "/" + artifactoryContainer.getMavenRepositoryName();
+        gitea.ensureRepositoryActionsVariable(repositoryOwner, REPO_NAME,
+                "BUNDLE_RELEASE_MAVEN_URL", bundleReleaseMavenUrl);
+        gitea.ensureRepositoryActionsVariable(repositoryOwner, REPO_NAME,
+                "BUNDLE_RELEASE_USERNAME", artifactoryContainer.getDeployerUsername());
+        putRepositoryActionsSecret("BUNDLE_RELEASE_PASSWORD",
+                artifactoryContainer.getDeployerPassword());
 
         artifactoryVariablesConfigured = true;
+    }
+
+    /**
+     * Set or update a repository-level Actions secret on Gitea.
+     *
+     * <p>Gitea's API: {@code PUT /repos/{owner}/{repo}/actions/secrets/{name}}
+     * with body {@code {"data": "<value>"}}. Unlike GitHub, Gitea handles
+     * encryption server-side, so {@code data} is the plain secret value.
+     */
+    private void putRepositoryActionsSecret(String name, String value) {
+        String url = gitea.getApiUrl()
+                + "/repos/" + repositoryOwner + "/" + REPO_NAME + "/actions/secrets/" + name;
+        String body = ObjectMapperFactory.createJsonMapper().createObjectNode()
+                .put("data", value)
+                .toString();
+        java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder()
+                .uri(java.net.URI.create(url))
+                .header("Authorization", "token " + gitea.getAdminToken())
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json")
+                .PUT(java.net.http.HttpRequest.BodyPublishers.ofString(
+                        body, java.nio.charset.StandardCharsets.UTF_8))
+                .build();
+        try {
+            java.net.http.HttpResponse<String> response =
+                    HTTP_CLIENT.send(request, java.net.http.HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() / 100 != 2) {
+                throw new IllegalStateException(
+                        "Failed to set Actions secret '" + name + "': status="
+                                + response.statusCode() + " body=" + response.body());
+            }
+            log.info("Set Actions secret '{}' on {}/{}", name, repositoryOwner, REPO_NAME);
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("Failed to PUT Actions secret '" + name + "'", e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while setting Actions secret '" + name + "'", e);
+        }
     }
 
     /**
@@ -472,8 +535,89 @@ public class HappyPathUserJourneyTest {
      * This method navigates to the job page and waits for the job status to be "Success".
      * The timeout for the wait is 5 minutes.
      */
-    private void waitUntilBuildSucceeded() {
-        String workflowFile = System.getProperty("promptlm.gitea.actions.workflow.file", "deploy-artifactory.yml");
+    /**
+     * Fire {@code bundle-release.yml} via Gitea's {@code workflow_dispatch}
+     * REST endpoint. Same wire format as GitHub Actions. Mirrors the helper
+     * in {@code CiWorkflowHarnessTest} (#311) — pulled into both tests rather
+     * than a shared support class for now because they share no other state.
+     */
+    private String dispatchBundleReleaseWorkflow(String version) {
+        String workflowFile = System.getProperty(
+                "promptlm.gitea.actions.workflow.file", "bundle-release.yml");
+        // Capture main's HEAD before dispatching so we can wait on the
+        // resulting run by SHA via gitea.actions().waitForWorkflowRunBySha
+        // — proper terminal-state waiting with conclusion + jobs in the
+        // returned report.
+        String headSha = fetchBranchHeadSha("main");
+
+        String dispatchUrl = gitea.getApiUrl()
+                + "/repos/" + repositoryOwner + "/" + REPO_NAME
+                + "/actions/workflows/" + workflowFile + "/dispatches";
+        String body = """
+                {"ref":"main","inputs":{"version":"%s","dry-run":"false"}}
+                """.formatted(version);
+        java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder()
+                .uri(java.net.URI.create(dispatchUrl))
+                .header("Authorization", "token " + gitea.getAdminToken())
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json")
+                .POST(java.net.http.HttpRequest.BodyPublishers.ofString(
+                        body, java.nio.charset.StandardCharsets.UTF_8))
+                .build();
+        try {
+            java.net.http.HttpResponse<String> response =
+                    HTTP_CLIENT.send(request, java.net.http.HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() / 100 != 2) {
+                gitea.logRepositoryActionsDiagnostics(repositoryOwner, REPO_NAME);
+                throw new IllegalStateException(
+                        "Failed to dispatch " + workflowFile + ": status="
+                                + response.statusCode() + " body=" + response.body());
+            }
+            log.info("Dispatched {} on {}/{} ref=main sha={} version={}",
+                    workflowFile, repositoryOwner, REPO_NAME, headSha, version);
+            return headSha;
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("Failed to POST workflow dispatch", e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while dispatching workflow", e);
+        }
+    }
+
+    private String fetchBranchHeadSha(String branch) {
+        String url = gitea.getApiUrl()
+                + "/repos/" + repositoryOwner + "/" + REPO_NAME + "/branches/" + branch;
+        java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder()
+                .uri(java.net.URI.create(url))
+                .header("Authorization", "token " + gitea.getAdminToken())
+                .header("Accept", "application/json")
+                .GET()
+                .build();
+        try {
+            java.net.http.HttpResponse<String> response =
+                    HTTP_CLIENT.send(request, java.net.http.HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() / 100 != 2) {
+                throw new IllegalStateException(
+                        "Failed to GET branch " + branch + ": status="
+                                + response.statusCode() + " body=" + response.body());
+            }
+            JsonNode json = ObjectMapperFactory.createJsonMapper().readTree(response.body());
+            String sha = json.path("commit").path("id").asText("");
+            if (sha.isBlank()) {
+                throw new IllegalStateException(
+                        "Branch " + branch + " response did not include commit.id: " + response.body());
+            }
+            return sha;
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("Failed to GET branch " + branch, e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while fetching branch " + branch, e);
+        }
+    }
+
+    private void waitUntilBuildSucceeded(String dispatchSha) {
+        String workflowFile = System.getProperty("promptlm.gitea.actions.workflow.file", "bundle-release.yml");
         try {
             int removedCiTasks = gitea.cleanupActionsTaskContainers("workflow-prompt-repository-ci");
             if (removedCiTasks > 0) {
@@ -481,17 +625,78 @@ public class HappyPathUserJourneyTest {
             }
             gitea.logRepositoryActionsDiagnostics(repositoryOwner, REPO_NAME);
 
-            Duration timeout = Duration.ofMinutes(12);
-            Duration pollInterval = Duration.ofSeconds(2);
-            gitea.waitForRepositoryActionsRun(repositoryOwner, REPO_NAME, timeout, pollInterval);
+            // Use the proper terminal-state waiter from the Gitea support
+            // library. The older gitea.waitForRepositoryActionsRun(...)
+            // returned as soon as a run *existed*, regardless of status —
+            // letting the test log a misleading "finished successfully" 4s
+            // after dispatch and silently time out 12 min later on the
+            // artifact poll. See issue #344.
+            GiteaActions.ActionExecutionReport report = gitea.actions().waitForWorkflowRunBySha(
+                    repositoryOwner, REPO_NAME, dispatchSha,
+                    Duration.ofMinutes(12), Duration.ofSeconds(5));
+
+            GiteaActions.ActionRunSummary run = report.run();
+            if (!"success".equalsIgnoreCase(run.conclusion())) {
+                dumpDiagnostics(report, run.id());
+                throw new IllegalStateException(
+                        "Workflow '" + workflowFile + "' did not succeed: runId=" + run.id()
+                                + " status=" + run.status()
+                                + " conclusion=" + run.conclusion()
+                                + " htmlUrl=" + run.htmlUrl());
+            }
 
             // Keep UI navigation as a debugging aid after the API confirms completion.
             GiteaActionsUiHelper.openJobPageForWorkflow(page, gitea, repositoryOwner, REPO_NAME, workflowFile);
-            log.info("Workflow '{}' finished successfully. Proceeding with Artifactory verification.", workflowFile);
+            log.info("Workflow '{}' finished successfully (runId={}). Proceeding with Artifactory verification.",
+                    workflowFile, run.id());
+        } catch (GiteaWorkflowException workflowException) {
+            // waitForWorkflowRunBySha already attached diagnostics to the
+            // exception message — surface them and rethrow.
+            log.error("Workflow '{}' wait failed: {}", workflowFile, workflowException.getMessage());
+            gitea.logActionsRunnerDiagnostics("release workflow '" + workflowFile + "' wait failed");
+            throw workflowException;
         } catch (AssertionError | RuntimeException exception) {
             gitea.logRepositoryActionsDiagnostics(repositoryOwner, REPO_NAME);
             gitea.logActionsRunnerDiagnostics("release workflow '" + workflowFile + "' failed");
             throw exception;
+        }
+    }
+
+    private void dumpDiagnostics(GiteaActions.ActionExecutionReport report, long runId) {
+        for (GiteaActions.ActionJobSummary job : report.jobs()) {
+            log.error("Job '{}' (id={}) status={} conclusion={}",
+                    job.name(), job.id(), job.status(), job.conclusion());
+        }
+        // The /actions/runs/{run}/jobs/{job}/logs endpoint Gitea exposes
+        // returns 404 in the runner version used here; collectActionsDiagnostics
+        // already implements the fallback (per-task container docker logs +
+        // Gitea-side actions log files), so use that instead of calling
+        // downloadWorkflowJobLogs directly. See issue #345.
+        GiteaActionsDiagnostics diagnostics;
+        try {
+            diagnostics = gitea.collectActionsDiagnostics(repositoryOwner, REPO_NAME, runId);
+        } catch (RuntimeException diagnosticsError) {
+            log.warn("Failed to collect Gitea Actions diagnostics for run id={}: {}",
+                    runId, diagnosticsError.getMessage());
+            return;
+        }
+
+        for (Map.Entry<Long, List<GiteaActionsTaskContainerLog>> entry
+                : diagnostics.taskContainerLogsByJobId().entrySet()) {
+            for (GiteaActionsTaskContainerLog taskLog : entry.getValue()) {
+                log.error("--- runner task container log (jobId={} containerId={} names={}) ---\n{}\n--- end ---",
+                        entry.getKey(),
+                        taskLog.containerId(),
+                        taskLog.containerNames(),
+                        taskLog.logs());
+            }
+        }
+        for (GiteaActionsLogFile logFile : diagnostics.giteaActionsLogFiles()) {
+            log.error("--- gitea actions log file {} ({} bytes) ---\n{}\n--- end ---",
+                    logFile.path(), logFile.sizeBytes(), logFile.contents());
+        }
+        if (!diagnostics.warnings().isEmpty()) {
+            log.warn("Diagnostics collector warnings: {}", diagnostics.warnings());
         }
     }
 

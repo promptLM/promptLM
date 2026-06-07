@@ -44,10 +44,16 @@ class RepositoryTemplateReadmeContentTest {
         assertTrue(readme.contains("{{PROJECT_DESCRIPTION}}"),
                 "README must keep the {{PROJECT_DESCRIPTION}} template token canonical for the substitution pipeline (#160)");
 
-        assertTrue(readme.contains("Mode 1"),
-                "README must include the Mode 1 (prompt management) usage section (see issue #166)");
-        assertTrue(readme.contains("Mode 2"),
-                "README must include the Mode 2 (prompt releases) usage section (see issue #166)");
+        // 0.1.0 ships a single mode (bundle-release → GitHub Packages); the
+        // README must surface the bundle-release framing and the canonical
+        // workflow name. The dual-mode (Mode 1 / Mode 2) text returns when the
+        // progressive-disclosure UX in #275 lands.
+        assertTrue(readme.contains("bundle-release"),
+                "README must explain the bundle-release release class (see docs/release-classes.md, #311)");
+        assertTrue(readme.contains("bundle-release.yml"),
+                "README must reference the canonical bundle-release.yml workflow (#311)");
+        assertTrue(readme.contains("GitHub Packages"),
+                "README must call out GitHub Packages as the default registry (#311)");
     }
 
     private String readReadmeFromTemplateZip() throws Exception {

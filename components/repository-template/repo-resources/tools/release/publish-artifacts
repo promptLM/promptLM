@@ -9,6 +9,7 @@ if sys.version_info < (3, 11):
     )
 
 import argparse
+import os
 import shutil
 import subprocess
 import tomllib  # Python 3.11+
@@ -41,6 +42,11 @@ def resolve_targets(manifest: dict) -> list[str]:
 
 
 def resolve_version(manifest: dict) -> str:
+    # Mirror build-artifacts: $BUNDLE_VERSION overrides the manifest value so
+    # CI can publish a tag-derived version without touching artifacts.toml.
+    override = os.environ.get("BUNDLE_VERSION", "").strip()
+    if override:
+        return override
     project = manifest.get("project", {})
     version = project.get("version")
     if not version:
@@ -60,7 +66,11 @@ def publish_java(manifest: dict, version: str, profile: dict, dist_dir: Path) ->
     if not jar_path.exists():
         raise RuntimeError(f"Java artifact not found: {jar_path}")
 
-    url = profile.get("maven_repo_url")
+    # $BUNDLE_RELEASE_MAVEN_URL overrides profile.maven_repo_url. bundle-release.yml
+    # uses this to route Java publishes to the workflow-resolved registry
+    # (default: maven.pkg.github.com/<owner>/<repo>; acceptance tests: a local
+    # Artifactory testcontainer playing as a Maven registry).
+    url = os.environ.get("BUNDLE_RELEASE_MAVEN_URL", "").strip() or profile.get("maven_repo_url")
     if not url:
         raise RuntimeError("maven_repo_url is required for Java deploy")
 

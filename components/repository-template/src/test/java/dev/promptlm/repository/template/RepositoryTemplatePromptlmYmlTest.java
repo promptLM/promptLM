@@ -28,10 +28,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 /**
- * Verifies the bundled {@code promptlm.yml} template defaults to Mode 2
- * (release enabled) per issue #276 and ships the full schema required by
- * issue #161. The Mode-2 default is a stopgap until the progressive-disclosure
- * UX in #275 ships — revert to Mode 1 when that work lands.
+ * Verifies the bundled {@code promptlm.yml} template ships the bundle-release
+ * schema that 0.1.0 commits to (see {@code docs/release-classes.md} and
+ * issue #311). The legacy tag-triggered schema (with {@code tagPattern} /
+ * {@code source: git-tag}) was retired when bundle-release moved to
+ * {@code release.created} + {@code workflow_dispatch} per the org standard.
+ * Mode-1 / Mode-2 splitting returns with the progressive-disclosure UX in
+ * #275.
  */
 class RepositoryTemplatePromptlmYmlTest {
 
@@ -46,29 +49,32 @@ class RepositoryTemplatePromptlmYmlTest {
     @Test
     void promptlmYmlDefaultsReleaseEnabledToTrue() throws Exception {
         String content = readPromptlmYmlFromTemplateZip();
-        // Stopgap per #276: the template defaults to Mode 2 (release enabled)
-        // so newly created repositories ship with the full release pipeline.
-        // The durable Mode-1-default + opt-in promotion UX is tracked in #275;
-        // when that ships, revert this expectation back to `enabled: false`.
+        // 0.1.0 ships a single mode (bundle-release). The flag stays in the
+        // schema as the seam #275 will wire up; for 0.1.0 it is always true.
         assertThat(content)
-                .as("Default promptlm.yml must set release.enabled to true (issue #276 stopgap; reverts when #275 ships)")
+                .as("Default promptlm.yml must set release.enabled to true (#311)")
                 .containsPattern("(?m)^\\s+enabled:\\s*true\\b");
     }
 
     @Test
-    void promptlmYmlExposesTheFullReleaseSchema() throws Exception {
+    void promptlmYmlExposesTheBundleReleaseSchema() throws Exception {
         String content = readPromptlmYmlFromTemplateZip();
         assertThat(content).contains("release:");
         assertThat(content).contains("provider: github-actions");
         assertThat(content).contains("trigger:");
-        assertThat(content).contains("tagPattern:");
+        // bundle-release fires on release.created (plus workflow_dispatch).
+        // The legacy `tagPattern:` + `source: git-tag` keys were removed when
+        // we switched off the `push: tags:` anti-pattern (see
+        // promptlm-release ci-workflow-design.md §2).
+        assertThat(content).contains("type: release-created");
         assertThat(content).contains("workflowDispatch:");
         assertThat(content).contains("artifact:");
+        assertThat(content).contains("format: jar");
         assertThat(content).contains("includeManifest:");
         assertThat(content).contains("includeChecksums:");
         assertThat(content).contains("versioning:");
         assertThat(content).contains("strategy: semver");
-        assertThat(content).contains("source: git-tag");
+        assertThat(content).contains("source: github-release");
         assertThat(content).contains("validation:");
         assertThat(content).contains("failOnEmpty:");
         assertThat(content).contains("failOnMissingMetadata:");
