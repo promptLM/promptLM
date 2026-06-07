@@ -474,17 +474,60 @@ public class HappyPathUserJourneyTest {
         // bundle-release.yml reads BUNDLE_RELEASE_* to override the shipped
         // default (maven.pkg.github.com/<owner>/<repo>, GITHUB_TOKEN auth) and
         // publish to the local Artifactory testcontainer instead. Real-world
-        // repos rely on the default and configure none of these. Mirrors the
+        // repos rely on the default and configure none of these.
+        //
+        // Note the split: the workflow reads URL + USERNAME from `vars.*` and
+        // PASSWORD from `secrets.*` (so the password is masked in logs). The
+        // Gitea support library only exposes a vars helper today; for the
+        // secret we call Gitea's /actions/secrets API inline. Mirrors the
         // wiring in CiWorkflowHarnessTest (#311).
         String bundleReleaseMavenUrl = artifactoryRunnerUrl + "/" + artifactoryContainer.getMavenRepositoryName();
         gitea.ensureRepositoryActionsVariable(repositoryOwner, REPO_NAME,
                 "BUNDLE_RELEASE_MAVEN_URL", bundleReleaseMavenUrl);
         gitea.ensureRepositoryActionsVariable(repositoryOwner, REPO_NAME,
                 "BUNDLE_RELEASE_USERNAME", artifactoryContainer.getDeployerUsername());
-        gitea.ensureRepositoryActionsVariable(repositoryOwner, REPO_NAME,
-                "BUNDLE_RELEASE_PASSWORD", artifactoryContainer.getDeployerPassword());
+        putRepositoryActionsSecret("BUNDLE_RELEASE_PASSWORD",
+                artifactoryContainer.getDeployerPassword());
 
         artifactoryVariablesConfigured = true;
+    }
+
+    /**
+     * Set or update a repository-level Actions secret on Gitea.
+     *
+     * <p>Gitea's API: {@code PUT /repos/{owner}/{repo}/actions/secrets/{name}}
+     * with body {@code {"data": "<value>"}}. Unlike GitHub, Gitea handles
+     * encryption server-side, so {@code data} is the plain secret value.
+     */
+    private void putRepositoryActionsSecret(String name, String value) {
+        String url = gitea.getApiUrl()
+                + "/repos/" + repositoryOwner + "/" + REPO_NAME + "/actions/secrets/" + name;
+        String body = ObjectMapperFactory.createJsonMapper().createObjectNode()
+                .put("data", value)
+                .toString();
+        java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder()
+                .uri(java.net.URI.create(url))
+                .header("Authorization", "token " + gitea.getAdminToken())
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json")
+                .PUT(java.net.http.HttpRequest.BodyPublishers.ofString(
+                        body, java.nio.charset.StandardCharsets.UTF_8))
+                .build();
+        try {
+            java.net.http.HttpResponse<String> response =
+                    HTTP_CLIENT.send(request, java.net.http.HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() / 100 != 2) {
+                throw new IllegalStateException(
+                        "Failed to set Actions secret '" + name + "': status="
+                                + response.statusCode() + " body=" + response.body());
+            }
+            log.info("Set Actions secret '{}' on {}/{}", name, repositoryOwner, REPO_NAME);
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("Failed to PUT Actions secret '" + name + "'", e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while setting Actions secret '" + name + "'", e);
+        }
     }
 
     /**

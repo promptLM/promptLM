@@ -199,8 +199,43 @@ class CiWorkflowHarnessTest implements WithAssertions {
                 "BUNDLE_RELEASE_MAVEN_URL", bundleReleaseMavenUrl);
         gitea.ensureRepositoryActionsVariable(owner, REPO_NAME,
                 "BUNDLE_RELEASE_USERNAME", artifactory.getDeployerUsername());
-        gitea.ensureRepositoryActionsVariable(owner, REPO_NAME,
+        // Password is read from `secrets.*` (not `vars.*`) so it's masked in
+        // workflow logs. The Gitea support library only exposes a vars helper,
+        // so we hit Gitea's /actions/secrets API directly. See PR #343 #344.
+        putRepositoryActionsSecret(gitea, owner, REPO_NAME,
                 "BUNDLE_RELEASE_PASSWORD", artifactory.getDeployerPassword());
+    }
+
+    private static void putRepositoryActionsSecret(GiteaContainer gitea,
+                                                    String owner,
+                                                    String repoName,
+                                                    String name,
+                                                    String value) {
+        String url = gitea.getApiUrl()
+                + "/repos/" + owner + "/" + repoName + "/actions/secrets/" + name;
+        String body = "{\"data\":\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"}";
+        java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder()
+                .uri(java.net.URI.create(url))
+                .header("Authorization", "token " + gitea.getAdminToken())
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json")
+                .PUT(java.net.http.HttpRequest.BodyPublishers.ofString(
+                        body, java.nio.charset.StandardCharsets.UTF_8))
+                .build();
+        try {
+            java.net.http.HttpResponse<String> response =
+                    HTTP_CLIENT.send(request, java.net.http.HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() / 100 != 2) {
+                throw new IllegalStateException(
+                        "Failed to set Actions secret '" + name + "': status="
+                                + response.statusCode() + " body=" + response.body());
+            }
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("Failed to PUT Actions secret '" + name + "'", e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while setting Actions secret '" + name + "'", e);
+        }
     }
 
     /**
