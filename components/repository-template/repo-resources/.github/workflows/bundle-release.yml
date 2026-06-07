@@ -115,6 +115,24 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
+      - name: Ensure Maven is available
+        shell: bash
+        run: |
+          # GitHub-hosted ubuntu-latest runners ship Maven preinstalled, but
+          # self-hosted / Gitea Actions runners (e.g. the catthehacker:act-22.04
+          # image the promptLM acceptance harness uses) do not. setup-java@v4
+          # only provisions the JDK, so make Maven explicit and idempotent.
+          if command -v mvn >/dev/null 2>&1; then
+            echo "Maven already on PATH: $(mvn -v | head -1)"
+          elif command -v apt-get >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends maven
+            mvn -v | head -1
+          else
+            echo "::error::No Maven on PATH and apt-get unavailable — install Maven manually."
+            exit 1
+          fi
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
