@@ -261,9 +261,10 @@ public class GitHubPromptStore implements PromptStore {
                 ? "Retired prompt: " + promptSpec.getName()
                 : "Updated prompt: " + promptSpec.getName();
 
-        PromptSpec updatedSpec = storePrompt(promptSpec, commitMessage, true);
-        updatedSpec.withRevision(promptSpec.getRevision() + 1);
-        // Return the new version number (assuming version is incremented)
+        // Bump the revision BEFORE persisting so the YAML committed to git carries the
+        // new revision and the returned int matches what is on disk. See #355.
+        PromptSpec bumped = promptSpec.withRevision(promptSpec.getRevision() + 1);
+        PromptSpec updatedSpec = storePrompt(bumped, commitMessage, true);
         return updatedSpec.getRevision();
     }
 
