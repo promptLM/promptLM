@@ -121,11 +121,17 @@ jobs:
       # default 6-target matrix fails the windows/arm64 leg at `Set up
       # GraalVM`. Scope to 5 targets for 0.1.0; restore windows/arm64
       # in 0.2.0 once upstream ships or we switch distributions (#346).
+      #
+      # macos x64 uses `macos-15-intel` rather than `macos-13`: macos-13
+      # is being retired (Dec 2025) and its GH-hosted runner pool has been
+      # exhausted, leaving the macos/x64 leg stuck queued for hours.
+      # `macos-15-intel` is the documented free Intel x64 successor,
+      # available until August 2027 (the last Intel macOS runner image).
       native-targets: |
         [
           {"os": "ubuntu-latest",    "platform": "linux",   "arch": "x64"},
           {"os": "ubuntu-24.04-arm", "platform": "linux",   "arch": "arm64"},
-          {"os": "macos-13",         "platform": "macos",   "arch": "x64"},
+          {"os": "macos-15-intel",   "platform": "macos",   "arch": "x64"},
           {"os": "macos-14",         "platform": "macos",   "arch": "arm64"},
           {"os": "windows-latest",   "platform": "windows", "arch": "x64"}
         ]
