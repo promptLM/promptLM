@@ -54,6 +54,15 @@ public class ZipFileRepositoryTemplateExtractor implements RepositoryTemplateExt
     private static final String CONFIG_FILE_NAME = "promptlm.yml";
 
     /**
+     * Schema version this loader knows how to read. A {@code promptlm.yml}
+     * declaring a higher version is rejected; a missing version is treated as
+     * {@value #SUPPORTED_SCHEMA_VERSION} with a deprecation warning so that
+     * the field can be retrofitted to existing files non-disruptively. See
+     * issue #353.
+     */
+    static final String SUPPORTED_SCHEMA_VERSION = "1";
+
+    /**
      * Entries that are only relevant in Mode 2 (release-enabled). When
      * {@code release.enabled} is {@code false} in the generated repository's
      * {@value #CONFIG_FILE_NAME}, these files are skipped during extraction so
@@ -106,7 +115,9 @@ public class ZipFileRepositoryTemplateExtractor implements RepositoryTemplateExt
         Objects.requireNonNull(context, "context");
 
         Map<String, byte[]> entries = readAllEntries();
-        boolean releaseEnabled = isReleaseEnabled(entries.get(CONFIG_FILE_NAME));
+        byte[] configBytes = entries.get(CONFIG_FILE_NAME);
+        verifySchemaVersion(configBytes);
+        boolean releaseEnabled = isReleaseEnabled(configBytes);
         log.debug("Repository template release.enabled resolved to {}", releaseEnabled);
 
         boolean posixSupported = FileSystems.getDefault()
@@ -214,6 +225,56 @@ public class ZipFileRepositoryTemplateExtractor implements RepositoryTemplateExt
             }
         }
         return false;
+    }
+
+    /**
+     * Verify the {@code schemaVersion} declared in the template's
+     * {@code promptlm.yml}. A missing version is tolerated with a
+     * deprecation warning (treated as {@value #SUPPORTED_SCHEMA_VERSION});
+     * a higher version is rejected with {@link IllegalStateException} so
+     * the rollout fails loudly rather than silently producing a malformed
+     * repository.
+     *
+     * <p>Like {@link #isReleaseEnabled(byte[])} this uses a regex over the
+     * top-level key rather than a full YAML parser to keep the module
+     * dependency-free. See issue #353.
+     *
+     * @param configBytes the raw bytes of {@code promptlm.yml}, or
+     *                    {@code null} / empty if the file is absent (in
+     *                    which case the check is skipped — the caller's
+     *                    fallback path covers that case).
+     */
+    static void verifySchemaVersion(byte[] configBytes) {
+        if (configBytes == null || configBytes.length == 0) {
+            return;
+        }
+        String declared = readSchemaVersion(configBytes);
+        if (declared == null) {
+            log.warn("{} is missing 'schemaVersion'; assuming '{}'. This will become an error in a future release.",
+                    CONFIG_FILE_NAME, SUPPORTED_SCHEMA_VERSION);
+            return;
+        }
+        if (SUPPORTED_SCHEMA_VERSION.equals(declared)) {
+            return;
+        }
+        if (declared.compareTo(SUPPORTED_SCHEMA_VERSION) > 0) {
+            throw new IllegalStateException(
+                    "Unsupported %s schemaVersion '%s'; this build of promptLM only understands schemaVersion '%s'. Upgrade promptLM to consume this template."
+                            .formatted(CONFIG_FILE_NAME, declared, SUPPORTED_SCHEMA_VERSION));
+        }
+        log.warn("{} declares older schemaVersion '{}'; loader expects '{}'. Proceeding on a best-effort basis.",
+                CONFIG_FILE_NAME, declared, SUPPORTED_SCHEMA_VERSION);
+    }
+
+    private static String readSchemaVersion(byte[] configBytes) {
+        String yaml = new String(configBytes, StandardCharsets.UTF_8);
+        Matcher matcher = Pattern
+                .compile("(?m)^schemaVersion:\\s*['\"]?([^'\"#\\s]+)['\"]?\\s*(?:#.*)?$")
+                .matcher(yaml);
+        if (matcher.find()) {
+            return matcher.group(1);
+        }
+        return null;
     }
 
     /**

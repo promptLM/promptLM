@@ -5,11 +5,18 @@
 # built and published; see `README.md` and `docs/release-classes.md` in the
 # promptLM app for the bundle-release concept.
 #
+# `schemaVersion` identifies the shape of this file. promptLM loaders refuse
+# to consume a file whose schemaVersion is newer than what they know how to
+# read; a missing schemaVersion is treated as "1" with a deprecation warning.
+# Bump this whenever a backwards-incompatible change is made to the keys
+# below.
+#
 # 0.1.0 ships a single mode: bundle-release (Maven jar → GitHub Packages).
 # A "prompt management only" mode (no CI/CD, no Maven coordinates) is planned
 # for 0.2.0 — when it lands, `release.enabled: false` will skip emitting the
 # release workflows / pom.xml / artifacts.toml at rollout time. Until then
 # the flag is informational; the workflows ship regardless.
+schemaVersion: "1"
 release:
   enabled: true
   provider: github-actions
