@@ -117,21 +117,18 @@ jobs:
       dry-run: ${{ inputs.dry-run }}
       maven-package-name: dev.promptlm.promptlm-parent
       cli-binary: promptlm-cli
-      # GraalVM CE 25.0.2 does not ship a windows-aarch64 binary, so the
-      # default 6-target matrix fails the windows/arm64 leg at `Set up
-      # GraalVM`. Scope to 5 targets for 0.1.0; restore windows/arm64
-      # in 0.2.0 once upstream ships or we switch distributions (#346).
-      #
-      # macos x64 uses `macos-15-intel` rather than `macos-13`: macos-13
-      # is being retired (Dec 2025) and its GH-hosted runner pool has been
-      # exhausted, leaving the macos/x64 leg stuck queued for hours.
-      # `macos-15-intel` is the documented free Intel x64 successor,
-      # available until August 2027 (the last Intel macOS runner image).
+      # GraalVM CE 25.0.2 publishes only 4 OS/arch binaries:
+      #   linux-x64, linux-aarch64, macos-aarch64, windows-x64.
+      # The default 6-target matrix in the reusable workflow assumes
+      # binaries that don't exist for this GraalVM version, so the
+      # `windows-aarch64` (#346) and `macos-x64` (#350) legs fail at
+      # `Set up GraalVM` with a download 404. Scope to the 4 targets
+      # CE actually ships for 0.1.0; restore the missing legs in 0.2.0
+      # once upstream ships or we switch GraalVM distributions.
       native-targets: |
         [
           {"os": "ubuntu-latest",    "platform": "linux",   "arch": "x64"},
           {"os": "ubuntu-24.04-arm", "platform": "linux",   "arch": "arm64"},
-          {"os": "macos-15-intel",   "platform": "macos",   "arch": "x64"},
           {"os": "macos-14",         "platform": "macos",   "arch": "arm64"},
           {"os": "windows-latest",   "platform": "windows", "arch": "x64"}
         ]
