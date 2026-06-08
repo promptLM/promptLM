@@ -165,6 +165,22 @@
                         <configuration>
                             <mainClass>dev.promptlm.CliApplication</mainClass>
                             <classesDirectory>${project.build.outputDirectory}</classesDirectory>
+                            <!--
+                              Bound the native-image hosted JVM heap and parallelism explicitly.
+                              On a 7 GB macos-14 GitHub-hosted runner native-image auto-sized to
+                              ~5.9 GB and the deadlock watchdog killed the build at the
+                              StrengthenGraphs typestate phase (run 27106919036, attempt 1)
+                              with Used=5932/Max=5932 MB. Capping to 5 GB leaves headroom for
+                              the OS + page cache; --parallelism=2 reduces concurrent
+                              point-to-analysis pressure. Slows the build slightly but makes
+                              it deterministic across the GH-hosted matrix.
+                            -->
+                            <jvmArgs>
+                                <arg>-Xmx5g</arg>
+                            </jvmArgs>
+                            <buildArgs>
+                                <arg>--parallelism=2</arg>
+                            </buildArgs>
                         </configuration>
                         <executions>
                             <execution>
