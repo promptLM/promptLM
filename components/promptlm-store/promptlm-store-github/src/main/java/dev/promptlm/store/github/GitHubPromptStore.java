@@ -27,6 +27,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
@@ -230,7 +231,6 @@ public class GitHubPromptStore implements PromptStore {
                     .filter(this::isPromptSpec)
                     .filter(beforeReading)
                     .map(f -> modelYamlMapper.readValue(f.toFile(), PromptSpec.class))
-                    .peek(spec -> spec.getId())
                     .filter(predicate)
                     .findFirst();
         }
@@ -689,7 +689,7 @@ public class GitHubPromptStore implements PromptStore {
         List<GitRepositoryMetadataFile.Version> versions = metadataFile.getVersions();
 
         GitRepositoryMetadataFile.Version v = versions.stream()
-                .filter(m -> m.getId().equals(picked.getId()) && releaseVersion.equals(m.getVersion()))
+                .filter(m -> Objects.equals(m.getId(), picked.getId()) && releaseVersion.equals(m.getVersion()))
                 .findFirst()
                 .orElse(newVersion(versions));
         v.setName(picked.getName());
@@ -1028,7 +1028,7 @@ public class GitHubPromptStore implements PromptStore {
 
         Path repoDir = appContext.getActiveProject().getRepoDir();
         git.checkoutBranch(DEV_BRANCH, repoDir.toFile());
-        Optional<PromptSpec> dev = searchInPromptSpec(repoDir.toFile(), (p) -> p.getId().equals(id), p -> true);
+        Optional<PromptSpec> dev = searchInPromptSpec(repoDir.toFile(), (p) -> id.equals(p.getId()), p -> true);
         return dev.orElseThrow(() -> new IllegalArgumentException("Could not find PromptSpec with id %s".formatted(id)));
 
     }
