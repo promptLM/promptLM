@@ -44,10 +44,24 @@ const formatRelative = (iso?: string): string => {
   return formatDistanceToNow(date, { addSuffix: true });
 };
 
-const toPromptStatus = (raw: PromptSpec['status']): PromptStatus => {
+/**
+ * Map the backend `PromptSpec.status` enum to a UI `PromptStatus`.
+ *
+ * Issue #354: a brand-new prompt was rendered as "production" the moment it
+ * was created, because `ACTIVE` maps to a published lifecycle stage and the
+ * generated client does not yet expose release metadata. Until the backend
+ * surfaces release state on `PromptSpec`, callers must pass an explicit
+ * `released` flag — `undefined` is treated as "not confirmed released" and
+ * downgrades `ACTIVE` to 'draft'. This is a deliberately safer default: better
+ * to under-promise than to label an unreleased prompt as production.
+ */
+const toPromptStatus = (
+  raw: PromptSpec['status'],
+  released?: boolean,
+): PromptStatus => {
   switch (raw) {
     case 'ACTIVE':
-      return 'production';
+      return released ? 'production' : 'draft';
     case 'RETIRED':
       return 'experimental';
     default:
@@ -179,7 +193,8 @@ export const mapPromptSpecToCatalogRowItem = (spec: PromptSpec): CatalogRowItem 
     revision: spec.revision ?? 0,
     vendor,
     model,
-    status: toPromptStatus(spec.status),
+    // TODO(#354): wire release state from backend
+    status: toPromptStatus(spec.status, undefined),
     placeholders,
     messages,
     updatedAt: formatRelative(spec.updatedAt ?? spec.createdAt),
@@ -331,7 +346,8 @@ export const mapPromptSpecToDetailViewModel = (
     rev: `r${spec.revision ?? 0}`,
     vendor: requestVendor,
     model: requestModel,
-    status: toPromptStatus(spec.status),
+    // TODO(#354): wire release state from backend
+    status: toPromptStatus(spec.status, undefined),
     request: {
       vendor: requestVendor,
       model: requestModel,

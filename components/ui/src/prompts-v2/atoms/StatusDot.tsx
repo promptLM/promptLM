@@ -14,7 +14,12 @@
 
 import * as React from 'react';
 
-export type PromptStatus = 'production' | 'staging' | 'experimental' | 'failing';
+export type PromptStatus =
+  | 'draft'
+  | 'production'
+  | 'staging'
+  | 'experimental'
+  | 'failing';
 
 export interface StatusDotProps extends React.HTMLAttributes<HTMLSpanElement> {
   status: PromptStatus;
@@ -23,6 +28,7 @@ export interface StatusDotProps extends React.HTMLAttributes<HTMLSpanElement> {
 }
 
 const STATUS_MAP: Record<PromptStatus, { color: string; label: string }> = {
+  draft: { color: 'var(--pl-ink-500)', label: 'draft' },
   production: { color: 'var(--pl-ok)', label: 'production' },
   staging: { color: 'var(--pl-warn)', label: 'staging' },
   experimental: { color: 'var(--pl-ink-500)', label: 'experimental' },

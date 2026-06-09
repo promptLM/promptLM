@@ -85,6 +85,7 @@ const PreReleaseBadge: React.FC<{ badge: PreReleaseExecutionBadge }> = ({ badge 
 );
 
 const STATUS_FG: Record<PromptStatus, string> = {
+  draft: 'var(--pl-ink-600)',
   production: 'oklch(0.40 0.12 155)',
   staging: 'oklch(0.50 0.13 75)',
   experimental: 'var(--pl-ink-600)',
@@ -92,6 +93,7 @@ const STATUS_FG: Record<PromptStatus, string> = {
 };
 
 const STATUS_DOT: Record<PromptStatus, string> = {
+  draft: 'var(--pl-ink-500)',
   production: 'oklch(0.55 0.13 155)',
   staging: 'var(--pl-warn)',
   experimental: 'var(--pl-ink-500)',
