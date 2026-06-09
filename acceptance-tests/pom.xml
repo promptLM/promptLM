@@ -82,12 +82,6 @@
         </dependency>
 
         <!-- Spring Boot test dependencies -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-test-classic</artifactId>
-            <version>4.0.3</version>
-            <scope>test</scope>
-        </dependency>
 
         <!-- JUnit Jupiter API -->
         <dependency>
