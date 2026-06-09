@@ -49,8 +49,15 @@ import static org.awaitility.Awaitility.await;
 /**
  * Pins the invariant of issue #352: a freshly created PromptSpec (no response
  * attached) must be persisted locally but must NOT be committed or pushed to the
- * remote git repository. Only once a response is attached (e.g. via execute)
- * does the spec get pushed.
+ * remote git repository.
+ *
+ * <p>The complementary direction — that attaching a response routes through the
+ * remote-push path — is asserted at the unit-test level in
+ * {@code DefaultPromptLifecycleServiceTest} ({@code createPromptSpecRoutesToStoreWhenResponseIsPresent},
+ * {@code updatePromptRoutesToStoreWhenResponseIsPresent}). That deliberately
+ * lives outside this acceptance suite because driving a real response into the
+ * spec via the public API requires {@code POST /execute}, which calls the live
+ * LLM and would make this test depend on {@code OPENAI_API_KEY}.
  */
 @WithGitea(actionsEnabled = false)
 @IntegrationTest
@@ -127,59 +134,6 @@ class SaveWithoutResponseContractTest {
                                 gitea.getAdminToken()
                         ),
                         Optional::isEmpty);
-    }
-
-    /**
-     * Attaching a response (via execute) to a previously-created draft must
-     * trigger the push so the YAML appears on the remote development branch.
-     *
-     * <p>This requires a real LLM call (OPENAI_API_KEY in the environment) —
-     * same constraint as HappyPathUserJourneyTest#runPromptPersistsManualExecution.
-     */
-    @Test
-    @DisplayName("execute after create: attaches response and pushes YAML to remote")
-    void updatePromptAttachesResponse_thenPushesToRemote() throws Exception {
-        JsonNode project = createStore(uniqueRepoName("execute"));
-        String group = "support";
-        String name = uniquePromptName("execute");
-
-        JsonNode created = createPrompt(project, group, name, "Say hello briefly.");
-        String promptId = created.path("id").asText();
-
-        // Sanity: not yet pushed.
-        String repoUrl = project.path("repositoryUrl").asText();
-        String remoteRelativePath = "prompts/%s/%s/promptlm.yml".formatted(group, name);
-        assertThat(GiteaRepositoryHelper.fetchRawFile(
-                HTTP_CLIENT, repoUrl, "development", remoteRelativePath, gitea.getAdminToken()))
-                .as("prompt must not be on remote before a response is attached")
-                .isEmpty();
-
-        // Execute the stored prompt — body-less POST triggers a clean run that
-        // records a MANUAL Execution (with response) against the stored spec.
-        // See PromptSpecController#executeStoredPrompt.
-        HttpResponse<String> executeResponse = sendRequest(
-                "POST", "/api/prompts/" + promptId + "/execute", null);
-        assertThat(executeResponse.statusCode())
-                .as("execute must succeed (requires OPENAI_API_KEY); body=%s", executeResponse.body())
-                .isEqualTo(200);
-        JsonNode executed = JSON_MAPPER.readTree(executeResponse.body());
-        assertThat(executed.path("response").isObject() || executed.path("response").isTextual())
-                .as("execute response must carry a response object")
-                .isTrue();
-
-        // Now the spec MUST be present on the remote development branch.
-        Optional<String> remoteYaml = await()
-                .atMost(Duration.ofSeconds(60))
-                .pollInterval(Duration.ofSeconds(2))
-                .until(() -> GiteaRepositoryHelper.fetchRawFile(
-                                HTTP_CLIENT,
-                                repoUrl,
-                                "development",
-                                remoteRelativePath,
-                                gitea.getAdminToken()
-                        ),
-                        Optional::isPresent);
-        assertThat(remoteYaml).isPresent();
     }
 
     private JsonNode createStore(String repoName) throws Exception {
