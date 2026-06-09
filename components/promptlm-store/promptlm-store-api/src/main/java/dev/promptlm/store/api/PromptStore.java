@@ -35,6 +35,24 @@ public interface PromptStore {
     PromptSpec storePrompt(PromptSpec promptSpec);
 
     /**
+     * Persist the prompt specification locally without committing or pushing
+     * to the remote repository. Used for drafts that have no response attached
+     * yet (issue #352): a prompt only earns a remote-visible artifact once a
+     * response has been recorded against it.
+     *
+     * <p>The default implementation delegates to {@link #storePrompt(PromptSpec)}
+     * for backends that have no remote concept (in-memory, test fakes); the
+     * remote-backed {@code GitHubPromptStore} overrides this to do the
+     * disk-write only.
+     *
+     * @param promptSpec The draft prompt specification to persist locally.
+     * @return The persisted prompt specification.
+     */
+    default PromptSpec storePromptDraft(PromptSpec promptSpec) {
+        return storePrompt(promptSpec);
+    }
+
+    /**
      * Retrieves the latest version of a prompt specification by ID.
      *
      * @param promptId The unique identifier of the prompt.

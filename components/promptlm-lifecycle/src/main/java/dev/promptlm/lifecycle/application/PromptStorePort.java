@@ -30,6 +30,15 @@ public interface PromptStorePort {
 
     PromptSpec storePrompt(PromptSpec promptSpec);
 
+    /**
+     * Persist a draft (no response attached) — local only, no remote push.
+     * See issue #352. Default delegates to {@link #storePrompt(PromptSpec)}
+     * for ports that have no remote concept.
+     */
+    default PromptSpec storePromptDraft(PromptSpec promptSpec) {
+        return storePrompt(promptSpec);
+    }
+
     Optional<PromptSpec> getLatestVersion(String promptSpecId);
 
     PromptSpec requestRelease(PromptSpec promptSpec);

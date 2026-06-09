@@ -136,11 +136,37 @@ public class GitHubPromptStore implements PromptStore {
         return storePrompt(promptSpec, commitMessage, true);
     }
 
+    /**
+     * Persist a draft (no response) to disk only — no commit, no push.
+     * See issue #352. The remote-visible artifact appears once a response
+     * is attached and {@link #storePrompt(PromptSpec)} is called.
+     */
+    @Override
+    public PromptSpec storePromptDraft(PromptSpec promptSpec) {
+        File repo = appContext.getActiveProject().getRepoDir().toFile();
+        // Keep the working tree on the development branch so a follow-up
+        // storePrompt() (after a response lands) commits onto the correct ref.
+        switchToDevelopmentBranch(repo);
+        return persistToDisk(promptSpec, repo);
+    }
+
     private PromptSpec storePrompt(PromptSpec promptSpec, String commitMessage, boolean ensureDevelopmentBranch) {
         File repo = appContext.getActiveProject().getRepoDir().toFile();
         if (ensureDevelopmentBranch) {
             switchToDevelopmentBranch(repo);
         }
+        PromptSpec finalPromptSpec = persistToDisk(promptSpec, repo);
+        git.addAllAndCommit(repo, commitMessage);
+        git.pushAll(repo);
+        return finalPromptSpec;
+    }
+
+    /**
+     * Compute hash / timestamps / path and write the YAML to disk. Pure
+     * filesystem mutation — no git interaction. Shared by both the full
+     * {@code storePrompt(...)} path and the draft path.
+     */
+    private PromptSpec persistToDisk(PromptSpec promptSpec, File repo) {
         PromptSpec hashUpdatedPrompt = promptSpec.withSemanticHashComputed();
 
         Path relativePath = resolvePromptSpecRelativePath(repo.toPath(), hashUpdatedPrompt.getGroup(), hashUpdatedPrompt.getName());
@@ -165,8 +191,6 @@ public class GitHubPromptStore implements PromptStore {
         }
 
         saveToDisk(finalPromptSpec);
-        git.addAllAndCommit(repo, commitMessage);
-        git.pushAll(repo);
         return finalPromptSpec;
     }
 

@@ -131,7 +131,8 @@ class DefaultPromptLifecycleServiceTest {
         when(repository.findPromptSpec(GROUP, NAME)).thenReturn(Optional.empty());
         when(repository.findPromptSpecTemplate(GROUP)).thenReturn("template");
         when(template.render(eq("template"), eq(GROUP), eq(NAME), any(), any(), any())).thenReturn(rendered);
-        when(repository.storePrompt(withId)).thenReturn(withId);
+        // No response on the rendered spec → draft persistence path (#352).
+        when(repository.storePromptDraft(withId)).thenReturn(withId);
 
         PromptSpec result = service.createPrompt(GROUP, Map.of(), NAME, List.of(), new PromptSpec.Placeholders(), Map.of());
 
@@ -174,14 +175,15 @@ class DefaultPromptLifecycleServiceTest {
 
         when(repository.findPromptSpec(GROUP, NAME)).thenReturn(Optional.empty());
         when(idGenerator.generateId(eq(GROUP), eq(NAME), any())).thenReturn(PROMPT_ID);
-        when(repository.storePrompt(any(PromptSpec.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        // No response on the input spec → draft persistence path (#352).
+        when(repository.storePromptDraft(any(PromptSpec.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         service.createPromptSpec(mixedCase);
 
         ArgumentCaptor<PromptSpec> storedCaptor = ArgumentCaptor.forClass(PromptSpec.class);
         verify(repository).findPromptSpec(GROUP, NAME);
         verify(idGenerator).generateId(eq(GROUP), eq(NAME), any());
-        verify(repository).storePrompt(storedCaptor.capture());
+        verify(repository).storePromptDraft(storedCaptor.capture());
 
         PromptSpec stored = storedCaptor.getValue();
         assertThat(stored.getGroup()).isEqualTo(GROUP);
@@ -232,7 +234,8 @@ class DefaultPromptLifecycleServiceTest {
         assertThat(updating.hasSemanticChangesComparedTo(existing)).isTrue();
 
         when(repository.getLatestVersion(PROMPT_ID)).thenReturn(Optional.of(existing));
-        when(repository.storePrompt(any(PromptSpec.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        // No response on either spec → draft persistence path (#352).
+        when(repository.storePromptDraft(any(PromptSpec.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         PromptSpec result = service.updatePrompt(PROMPT_ID, updating);
 
@@ -242,7 +245,7 @@ class DefaultPromptLifecycleServiceTest {
         assertThat(result.getRevision()).isEqualTo(4);
 
         verify(repository).getLatestVersion(PROMPT_ID);
-        verify(repository).storePrompt(result);
+        verify(repository).storePromptDraft(result);
     }
 
     @Test
@@ -298,14 +301,15 @@ class DefaultPromptLifecycleServiceTest {
                 .withDescription("new-desc");
 
         when(repository.getLatestVersion(PROMPT_ID)).thenReturn(Optional.of(existing));
-        when(repository.storePrompt(any(PromptSpec.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        // No response on either spec → draft persistence path (#352).
+        when(repository.storePromptDraft(any(PromptSpec.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         PromptSpec result = service.updatePrompt(PROMPT_ID, updating);
 
         assertThat(result.getExtensions()).containsEntry("x-legacy", extensionNode);
 
         verify(repository).getLatestVersion(PROMPT_ID);
-        verify(repository).storePrompt(result);
+        verify(repository).storePromptDraft(result);
     }
 
     @Test
@@ -322,7 +326,8 @@ class DefaultPromptLifecycleServiceTest {
                 .withExtensions(Map.of("x-new", newNode));
 
         when(repository.getLatestVersion(PROMPT_ID)).thenReturn(Optional.of(existing));
-        when(repository.storePrompt(any(PromptSpec.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        // No response on either spec → draft persistence path (#352).
+        when(repository.storePromptDraft(any(PromptSpec.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         PromptSpec result = service.updatePrompt(PROMPT_ID, updating);
 
@@ -331,7 +336,7 @@ class DefaultPromptLifecycleServiceTest {
                 .containsEntry("x-new", newNode);
 
         verify(repository).getLatestVersion(PROMPT_ID);
-        verify(repository).storePrompt(result);
+        verify(repository).storePromptDraft(result);
     }
 
     @Test
@@ -1152,7 +1157,8 @@ class DefaultPromptLifecycleServiceTest {
         assertThat(updating.hasSemanticChangesComparedTo(existing)).isTrue();
 
         when(repository.getLatestVersion(PROMPT_ID)).thenReturn(Optional.of(existing));
-        when(repository.storePrompt(any(PromptSpec.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        // No response on either spec → draft persistence path (#352).
+        when(repository.storePromptDraft(any(PromptSpec.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         PromptSpec result = service.updatePrompt(PROMPT_ID, updating);
 
@@ -1171,7 +1177,8 @@ class DefaultPromptLifecycleServiceTest {
         PromptSpec updating = existing.withDescription("new-desc");
 
         when(repository.getLatestVersion(PROMPT_ID)).thenReturn(Optional.of(existing));
-        when(repository.storePrompt(any(PromptSpec.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        // No response on either spec → draft persistence path (#352).
+        when(repository.storePromptDraft(any(PromptSpec.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         PromptSpec result = service.updatePrompt(PROMPT_ID, updating);
 
@@ -1229,6 +1236,65 @@ class DefaultPromptLifecycleServiceTest {
         assertThat(result.getExecutions())
                 .extracting(Execution::getId)
                 .containsExactly("exec-2", "exec-3", "exec-4", "exec-5", "exec-newest");
+    }
+
+    // ---------------------------------------------------------------------
+    // Issue #352: persistence routing must respect the "no response → draft"
+    // invariant. A prompt with a response routes through storePrompt (commit
+    // + push); one without routes through storePromptDraft (disk only).
+    // ---------------------------------------------------------------------
+
+    @Test
+    void createPromptSpecRoutesToDraftStoreWhenResponseIsNull() {
+        PromptSpec draft = basePromptSpec.withId(PROMPT_ID).withResponse(null);
+        when(repository.findPromptSpec(GROUP, NAME)).thenReturn(Optional.empty());
+        when(repository.storePromptDraft(any(PromptSpec.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.createPromptSpec(draft);
+
+        verify(repository).storePromptDraft(any(PromptSpec.class));
+        verify(repository, org.mockito.Mockito.never()).storePrompt(any(PromptSpec.class));
+    }
+
+    @Test
+    void createPromptSpecRoutesToStoreWhenResponseIsPresent() {
+        PromptSpec withResponse = basePromptSpec
+                .withId(PROMPT_ID)
+                .withResponse(new ChatCompletionResponse(7L, null, "preset"));
+        when(repository.findPromptSpec(GROUP, NAME)).thenReturn(Optional.empty());
+        when(repository.storePrompt(any(PromptSpec.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.createPromptSpec(withResponse);
+
+        verify(repository).storePrompt(any(PromptSpec.class));
+        verify(repository, org.mockito.Mockito.never()).storePromptDraft(any(PromptSpec.class));
+    }
+
+    @Test
+    void updatePromptRoutesToDraftStoreWhenResponseIsNull() {
+        PromptSpec existing = basePromptSpec.withRevision(3);
+        PromptSpec updating = existing.withDescription("new-desc");
+        when(repository.getLatestVersion(PROMPT_ID)).thenReturn(Optional.of(existing));
+        when(repository.storePromptDraft(any(PromptSpec.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.updatePrompt(PROMPT_ID, updating);
+
+        verify(repository).storePromptDraft(any(PromptSpec.class));
+        verify(repository, org.mockito.Mockito.never()).storePrompt(any(PromptSpec.class));
+    }
+
+    @Test
+    void updatePromptRoutesToStoreWhenResponseIsPresent() {
+        ChatCompletionResponse response = new ChatCompletionResponse(7L, null, "live");
+        PromptSpec existing = basePromptSpec.withRevision(3);
+        PromptSpec updating = existing.withResponse(response);
+        when(repository.getLatestVersion(PROMPT_ID)).thenReturn(Optional.of(existing));
+        when(repository.storePrompt(any(PromptSpec.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.updatePrompt(PROMPT_ID, updating);
+
+        verify(repository).storePrompt(any(PromptSpec.class));
+        verify(repository, org.mockito.Mockito.never()).storePromptDraft(any(PromptSpec.class));
     }
 
     @Test

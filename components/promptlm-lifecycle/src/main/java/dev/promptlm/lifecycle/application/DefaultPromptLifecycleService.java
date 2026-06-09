@@ -109,7 +109,7 @@ class DefaultPromptLifecycleService implements PromptLifecycleService {
         if (extensions != null && !extensions.isEmpty()) {
             promptSpec = promptSpec.withExtensions(mergeExtensions(promptSpec.getExtensions(), extensions));
         }
-        PromptSpec stored = repository.storePrompt(promptSpec);
+        PromptSpec stored = persistRespectingDraftInvariant(promptSpec);
         eventPublisher.publishEvent(new PromptCreatedEvent(stored));
         return stored;
     }
@@ -140,7 +140,7 @@ class DefaultPromptLifecycleService implements PromptLifecycleService {
                         extractMessages(normalizedSpec)
                 ));
 
-        PromptSpec stored = repository.storePrompt(withId);
+        PromptSpec stored = persistRespectingDraftInvariant(withId);
         eventPublisher.publishEvent(new PromptCreatedEvent(stored));
         return stored;
     }
@@ -220,7 +220,7 @@ class DefaultPromptLifecycleService implements PromptLifecycleService {
                 ? increaseRevision(updated).withExecutions(List.of())
                 : updated;
         PromptSpec hashed = versioned.withSemanticHashComputed();
-        repository.storePrompt(hashed);
+        persistRespectingDraftInvariant(hashed);
         return hashed;
     }
 
@@ -554,6 +554,19 @@ class DefaultPromptLifecycleService implements PromptLifecycleService {
 
     private PromptSpec increaseRevision(PromptSpec promptSpec) {
         return promptSpec.withRevision(promptSpec.getRevision() + 1);
+    }
+
+    /**
+     * Route the spec to {@code storePrompt} (commit + push) when a response
+     * is present, or to {@code storePromptDraft} (disk only) when it is not.
+     * Codifies the invariant from issue #352: a prompt without a response
+     * has no business on the remote.
+     */
+    private PromptSpec persistRespectingDraftInvariant(PromptSpec promptSpec) {
+        if (promptSpec.getResponse() != null) {
+            return repository.storePrompt(promptSpec);
+        }
+        return repository.storePromptDraft(promptSpec);
     }
 
     private List<ChatCompletionRequest.Message> extractMessages(PromptSpec promptSpec) {

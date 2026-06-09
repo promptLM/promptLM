@@ -48,6 +48,11 @@ class PromptStoreAdapter implements PromptStorePort {
     }
 
     @Override
+    public PromptSpec storePromptDraft(PromptSpec promptSpec) {
+        return promptStore.storePromptDraft(promptSpec);
+    }
+
+    @Override
     public Optional<PromptSpec> getLatestVersion(String promptSpecId) {
         return promptStore.getLatestVersion(promptSpecId);
     }
