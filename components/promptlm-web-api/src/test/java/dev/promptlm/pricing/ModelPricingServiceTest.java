@@ -109,6 +109,75 @@ class ModelPricingServiceTest {
     }
 
     @Test
+    void computeCost_matchesDatedOpenAiModelIdAgainstShortFormKey() {
+        // promptLM/promptlm-app#229 — SDKs persist dated ids like
+        // "gpt-5-2025-08-07"; the catalog keys are short-form ("gpt-5").
+        ModelPricingService service = serviceWith(Map.of(
+                "gpt-5", price(2.50, 10.00)
+        ));
+
+        Optional<Double> cost = service.computeCost("gpt-5-2025-08-07", 1_000_000, 0);
+
+        assertThat(cost).isPresent();
+        assertThat(cost.get()).isCloseTo(2.50, within(1e-9));
+    }
+
+    @Test
+    void computeCost_matchesDatedAnthropicModelIdAgainstShortFormKey() {
+        // Anthropic's dated form uses YYYYMMDD ("claude-opus-4-5-20251101").
+        ModelPricingService service = serviceWith(Map.of(
+                "claude-opus-4-5", price(15.00, 75.00)
+        ));
+
+        Optional<Double> cost = service.computeCost("claude-opus-4-5-20251101", 1_000_000, 0);
+
+        assertThat(cost).isPresent();
+        assertThat(cost.get()).isCloseTo(15.00, within(1e-9));
+    }
+
+    @Test
+    void computeCost_matchesDatedReasoningModelIdAgainstShortFormKey() {
+        // Regression for the o3-2025-04-16 case previously papered over in #224.
+        ModelPricingService service = serviceWith(Map.of(
+                "o3", price(2.00, 8.00)
+        ));
+
+        Optional<Double> cost = service.computeCost("o3-2025-04-16", 1_000_000, 0);
+
+        assertThat(cost).isPresent();
+        assertThat(cost.get()).isCloseTo(2.00, within(1e-9));
+    }
+
+    @Test
+    void computeCost_matchesVendorPrefixedDatedId() {
+        // Vendor prefix + dated suffix combined.
+        ModelPricingService service = serviceWith(Map.of(
+                "gpt-5", price(2.50, 10.00)
+        ));
+
+        Optional<Double> cost = service.computeCost("openai/gpt-5-2025-08-07", 1_000_000, 0);
+
+        assertThat(cost).isPresent();
+        assertThat(cost.get()).isCloseTo(2.50, within(1e-9));
+    }
+
+    @Test
+    void computeCost_preservesExactMatchOverDatedFallback() {
+        // If both the dated form and the short form are in the catalog,
+        // the dated form must win — never silently shadow a more-specific
+        // price with the short-form fallback.
+        ModelPricingService service = serviceWith(Map.of(
+                "gpt-5", price(2.50, 10.00),
+                "gpt-5-2025-08-07", price(3.00, 12.00)
+        ));
+
+        Optional<Double> cost = service.computeCost("gpt-5-2025-08-07", 1_000_000, 0);
+
+        assertThat(cost).isPresent();
+        assertThat(cost.get()).isCloseTo(3.00, within(1e-9));
+    }
+
+    @Test
     void computeCost_emptyTableReturnsEmpty() {
         ModelPricingService service = serviceWith(Map.of());
 
