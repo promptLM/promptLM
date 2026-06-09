@@ -74,5 +74,20 @@
             <artifactId>spring-boot-starter-webmvc-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!--
+            Brings in RestTemplate / RestTemplateBuilder for tests that use
+            @AutoConfigureTestRestTemplate. Spring Boot 4's slim
+            spring-boot-starter-webmvc no longer transitively pulls
+            spring-boot-restclient, but TestRestTemplateTestAutoConfiguration
+            still references RestTemplateBuilder when its @ConditionalOnMissingBean
+            return type is introspected, so the class must be on the test
+            classpath. Previously this jar arrived via spring-boot-starter-classic;
+            making the test dependency explicit keeps the slim swap from #302 intact.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-restclient</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 </project>
