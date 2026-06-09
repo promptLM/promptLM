@@ -19,6 +19,7 @@ package dev.promptlm.pricing;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 import dev.promptlm.pricing.ModelPricingProperties.ModelPrice;
 
@@ -81,6 +82,11 @@ public class ModelPricingService {
         return Optional.of(cost);
     }
 
+    // Trailing dated-revision suffix used by OpenAI / Anthropic SDK exposed ids,
+    // e.g. "gpt-5-2025-08-07", "claude-opus-4-5-20251101", "o3-2025-04-16".
+    // Matches "-YYYY-MM-DD" or "-YYYYMMDD" anchored to end of string.
+    private static final Pattern DATED_SUFFIX = Pattern.compile("-(\\d{4}-\\d{2}-\\d{2}|\\d{8})$");
+
     private ModelPrice lookup(String model) {
 
         Map<String, ModelPrice> table = properties.getModels();
@@ -93,19 +99,37 @@ public class ModelPricingService {
             return direct;
         }
         String normalized = trimmed.toLowerCase(Locale.ROOT);
-        for (Map.Entry<String, ModelPrice> entry : table.entrySet()) {
-            if (entry.getKey().toLowerCase(Locale.ROOT).equals(normalized)) {
-                return entry.getValue();
-            }
+        ModelPrice match = matchCaseInsensitive(table, normalized);
+        if (match != null) {
+            return match;
         }
         // Tolerate vendor-prefixed forms like "openai/gpt-4o".
         int slash = normalized.indexOf('/');
+        String afterVendor = normalized;
         if (slash >= 0 && slash < normalized.length() - 1) {
-            String stripped = normalized.substring(slash + 1);
-            for (Map.Entry<String, ModelPrice> entry : table.entrySet()) {
-                if (entry.getKey().toLowerCase(Locale.ROOT).equals(stripped)) {
-                    return entry.getValue();
-                }
+            afterVendor = normalized.substring(slash + 1);
+            match = matchCaseInsensitive(table, afterVendor);
+            if (match != null) {
+                return match;
+            }
+        }
+        // Tolerate dated SDK ids ("gpt-5-2025-08-07", "claude-opus-4-5-20251101",
+        // "o3-2025-04-16") by stripping a trailing -YYYY-MM-DD or -YYYYMMDD and
+        // retrying against the short-form catalog keys.
+        String undated = DATED_SUFFIX.matcher(afterVendor).replaceFirst("");
+        if (!undated.equals(afterVendor)) {
+            match = matchCaseInsensitive(table, undated);
+            if (match != null) {
+                return match;
+            }
+        }
+        return null;
+    }
+
+    private static ModelPrice matchCaseInsensitive(Map<String, ModelPrice> table, String needle) {
+        for (Map.Entry<String, ModelPrice> entry : table.entrySet()) {
+            if (entry.getKey().toLowerCase(Locale.ROOT).equals(needle)) {
+                return entry.getValue();
             }
         }
         return null;
