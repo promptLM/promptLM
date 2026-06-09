@@ -44,6 +44,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.nio.file.Files;
@@ -77,6 +79,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(controllers = PromptSpecController.class)
+@RecordApplicationEvents
 class PromptSpecControllerWebMvcTest {
 
     @Autowired
@@ -108,6 +111,9 @@ class PromptSpecControllerWebMvcTest {
 
     @MockitoBean
     private SseStatusPublisher sseStatusPublisher;
+
+    @Autowired(required = false)
+    private ApplicationEvents applicationEvents;
 
     @Test
     void getDefaultTemplateReturnsCanonicalDraftSeed() throws Exception {
@@ -1870,6 +1876,43 @@ class PromptSpecControllerWebMvcTest {
         mockMvc.perform(get("/api/prompts/{promptSpecId}/history", promptId).queryParam("pageSize", "500"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.pageSize").value(RepoHistoryAssembler.MAX_PAGE_SIZE));
+    }
+
+    @Test
+    void retryPushRepublishesPromptExecutedEventAndReturnsAccepted() throws Exception {
+        // Issue #361: the Retry-push endpoint re-fires only the deferred amend+push by
+        // republishing PromptExecutedEvent against the stored spec — the LLM is NOT
+        // re-invoked, so the executor must remain untouched.
+        String promptId = "support/welcome";
+        PromptSpec stored = baseSpec(promptId);
+        when(promptStore.getLatestVersion(promptId)).thenReturn(Optional.of(stored));
+
+        mockMvc.perform(post("/api/prompts/{promptSpecId}/push/retry", promptId))
+                .andExpect(status().isAccepted());
+
+        assertThat(applicationEvents).isNotNull();
+        List<dev.promptlm.domain.events.PromptExecutedEvent> executedEvents =
+                applicationEvents.stream(dev.promptlm.domain.events.PromptExecutedEvent.class).toList();
+        assertThat(executedEvents).hasSize(1);
+        assertThat(executedEvents.get(0).promptSpec()).isSameAs(stored);
+
+        // No LLM re-run on the push-retry path.
+        verifyNoInteractions(promptExecutor);
+    }
+
+    @Test
+    void retryPushReturnsNotFoundWhenPromptIsMissing() throws Exception {
+        String promptId = "support/missing";
+        when(promptStore.getLatestVersion(promptId)).thenReturn(Optional.empty());
+
+        mockMvc.perform(post("/api/prompts/{promptSpecId}/push/retry", promptId))
+                .andExpect(status().isNotFound());
+
+        if (applicationEvents != null) {
+            assertThat(applicationEvents.stream(dev.promptlm.domain.events.PromptExecutedEvent.class))
+                    .isEmpty();
+        }
+        verifyNoInteractions(promptExecutor);
     }
 
     private static PromptSpec repoHistoryFixture(String id, String version, int revision, List<Execution> executions) {

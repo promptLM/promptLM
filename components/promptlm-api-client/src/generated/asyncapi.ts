@@ -25,11 +25,12 @@ operation: string
  * 
  * The `connected`, `started`, `progress`, `completed`, and `failed`
  * values are emitted by the store operation channel. The
- * `executing`, `executed`, and `pushed` values are emitted by the
- * prompt-execution channel (issue #352 deferred-push save flow).
+ * `executing`, `executed`, `pushed`, and `push-failed` values are
+ * emitted by the prompt-execution channel (issue #352 deferred-push
+ * save flow; `push-failed` added in #361).
  * 
  */
-status: ("connected" | "started" | "progress" | "completed" | "failed" | "executing" | "executed" | "pushed")
+status: ("connected" | "started" | "progress" | "completed" | "failed" | "executing" | "executed" | "pushed" | "push-failed")
 /**
  * Human-readable status message.
  */

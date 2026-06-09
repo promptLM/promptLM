@@ -85,8 +85,11 @@ export type SubscribeToPromptExecutionStatusOptions = {
 
 export const isTerminalPromptExecutionStatusEvent = (event: StoreStatusEvent): boolean => {
   // 'executed' alone is not terminal — 'pushed' may still follow. The UI treats
-  // 'failed' or 'pushed' as terminal states for tearing down the subscription.
-  return event.status === 'failed' || event.status === 'pushed';
+  // 'failed', 'pushed', or 'push-failed' as terminal states for tearing down the
+  // subscription. ('push-failed' added in issue #361.)
+  return (
+    event.status === 'failed' || event.status === 'pushed' || event.status === 'push-failed'
+  );
 };
 
 export const subscribeToPromptExecutionStatus = ({

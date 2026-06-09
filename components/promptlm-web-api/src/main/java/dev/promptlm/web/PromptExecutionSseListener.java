@@ -19,6 +19,7 @@ package dev.promptlm.web;
 import dev.promptlm.domain.events.PromptCreatedEvent;
 import dev.promptlm.domain.events.PromptExecutedEvent;
 import dev.promptlm.domain.events.PromptExecutionFailedEvent;
+import dev.promptlm.domain.events.PromptPushFailedEvent;
 import dev.promptlm.domain.events.PromptPushedEvent;
 import dev.promptlm.domain.events.PromptUpdatedEvent;
 import dev.promptlm.domain.promptspec.PromptSpec;
@@ -47,6 +48,7 @@ public class PromptExecutionSseListener {
     public static final String STATUS_EXECUTED = "executed";
     public static final String STATUS_FAILED = "failed";
     public static final String STATUS_PUSHED = "pushed";
+    public static final String STATUS_PUSH_FAILED = "push-failed";
 
     private final SseStatusPublisher publisher;
 
@@ -88,6 +90,18 @@ public class PromptExecutionSseListener {
     @EventListener
     void onPromptPushed(PromptPushedEvent event) {
         emit(event.promptSpec(), STATUS_PUSHED, "Pushed to GitHub");
+    }
+
+    @EventListener
+    void onPromptPushFailed(PromptPushFailedEvent event) {
+        Map<String, Object> details = baseDetails(event.promptSpec());
+        if (StringUtils.hasText(event.reason())) {
+            details.put("reason", event.reason());
+        }
+        if (StringUtils.hasText(event.errorClass())) {
+            details.put("errorClass", event.errorClass());
+        }
+        publish(event.promptSpec(), STATUS_PUSH_FAILED, "Push to GitHub failed", details);
     }
 
     private void emit(PromptSpec spec, String status, String message) {

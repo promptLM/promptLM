@@ -150,6 +150,10 @@ export type PromptExecutionSubscriptionHandlers = {
   onExecuted?: (event: StoreStatusEvent) => void;
   onFailed?: (event: StoreStatusEvent) => void;
   onPushed?: (event: StoreStatusEvent) => void;
+  // #361: invoked when the deferred amend+push fails. Terminal — the
+  // subscription auto-closes once this fires. The editor wires this to a
+  // Retry-push affordance backed by `POST /api/prompts/{id}/push/retry`.
+  onPushFailed?: (event: StoreStatusEvent) => void;
   onError?: (error: Error) => void;
 };
 
@@ -159,6 +163,7 @@ export const subscribeToPromptExecutionAfterSave = ({
   onExecuted,
   onFailed,
   onPushed,
+  onPushFailed,
   onError,
 }: PromptExecutionSubscriptionHandlers): { close: () => void } => {
   const subscription = subscribeToPromptExecutionStatus({
@@ -176,6 +181,9 @@ export const subscribeToPromptExecutionAfterSave = ({
           break;
         case 'pushed':
           onPushed?.(event);
+          break;
+        case 'push-failed':
+          onPushFailed?.(event);
           break;
         default:
           // `connected` and other shared lifecycle states are ignored here;

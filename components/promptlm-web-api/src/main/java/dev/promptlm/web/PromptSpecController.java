@@ -20,6 +20,7 @@ import dev.promptlm.domain.AppContext;
 import dev.promptlm.domain.projectspec.ProjectSpec;
 import dev.promptlm.lifecycle.PromptLifecycleFacade;
 import dev.promptlm.domain.events.PromptCreatedEvent;
+import dev.promptlm.domain.events.PromptExecutedEvent;
 import dev.promptlm.execution.PromptExecutor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -964,6 +965,45 @@ public class PromptSpecController {
         // avoids a parallel "retry" code path.
         applicationEventPublisher.publishEvent(new PromptCreatedEvent(stored.get()));
         return ResponseEntity.accepted().build();
+    }
+
+    /**
+     * Re-fire only the deferred amend+push against the locally-stored spec — used by the
+     * editor's Retry-push affordance after a {@code push-failed} SSE status (issue #361).
+     *
+     * <p>This does NOT re-run the LLM. The stored spec already carries the attached
+     * response from a successful execution; what failed is the remote push. Republishing
+     * {@link PromptExecutedEvent} re-enters the existing {@code PromptPushListener} flow,
+     * which calls {@code amendAndPushHead} again against the preserved local commit.
+     */
+    @Operation(summary = "Retry the deferred push for a stored prompt",
+            description = "Re-fires the amend+push for a prompt whose previous push failed (issue #361). "
+                    + "Does NOT re-run the LLM — only the locally-stored spec's existing response is pushed. "
+                    + "Progress is delivered via the prompt-execution SSE channel.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "202", description = "Push retry accepted"),
+            @ApiResponse(responseCode = "404", description = "Prompt specification not found")
+    })
+    @PostMapping("/{promptSpecId}/push/retry")
+    public ResponseEntity<Void> retryPush(
+            @Parameter(description = "ID of the prompt specification whose push should be retried")
+            @PathVariable("promptSpecId") String promptSpecId) {
+        Optional<PromptSpec> stored = promptStore.getLatestVersion(promptSpecId);
+        if (stored.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        // Re-fire only the push leg: PromptPushListener handles PromptExecutedEvent by
+        // calling amendAndPushHead on the supplied spec. The LLM is not re-invoked.
+        applicationEventPublisher.publishEvent(new PromptExecutedEvent(stored.get()));
+        return ResponseEntity.accepted().build();
+    }
+
+    @Hidden
+    @PostMapping("/{group}/{name}/push/retry")
+    public ResponseEntity<Void> retryPushByGroupAndName(
+            @PathVariable("group") String group,
+            @PathVariable("name") String name) {
+        return retryPush(group + "/" + name);
     }
 
     private PromptExecutionException mapPromptExecutionException(String promptId, RuntimeException exception) {

@@ -17,6 +17,7 @@
 package dev.promptlm.lifecycle;
 
 import dev.promptlm.domain.events.PromptExecutedEvent;
+import dev.promptlm.domain.events.PromptPushFailedEvent;
 import dev.promptlm.domain.events.PromptPushedEvent;
 import dev.promptlm.domain.promptspec.ChatCompletionRequest;
 import dev.promptlm.domain.promptspec.PromptSpec;
@@ -60,15 +61,27 @@ class PromptPushListenerTest {
     }
 
     @Test
-    void swallowsPushFailureAndEmitsNoPushedEvent() {
+    void emitsPromptPushFailedEventWhenAmendAndPushThrowsAndDoesNotEmitPushedEvent() {
         PromptSpec executed = basePromptSpec();
-        when(repository.amendAndPushHead(executed)).thenThrow(new RuntimeException("push rejected"));
+        RuntimeException pushFailure = new RuntimeException("push rejected");
+        when(repository.amendAndPushHead(executed)).thenThrow(pushFailure);
 
         PromptPushListener listener = new PromptPushListener(repository, eventPublisher);
-        // No throw — the failure is logged + swallowed so the async event chain stays clean.
+        // No throw — the failure is logged + the failure event is published so SSE can
+        // surface a push-failed status without poisoning the async event chain.
         listener.onPromptExecuted(new PromptExecutedEvent(executed));
 
-        verify(eventPublisher, never()).publishEvent(any());
+        // Exactly one event published, and it is the failure event — not PromptPushedEvent.
+        ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        Object published = eventCaptor.getValue();
+        assertThat(published).isInstanceOf(PromptPushFailedEvent.class);
+        PromptPushFailedEvent failedEvent = (PromptPushFailedEvent) published;
+        assertThat(failedEvent.promptSpec()).isSameAs(executed);
+        assertThat(failedEvent.reason()).isEqualTo("push rejected");
+        assertThat(failedEvent.errorClass()).isEqualTo("RuntimeException");
+
+        verify(eventPublisher, never()).publishEvent(any(PromptPushedEvent.class));
     }
 
     private static PromptSpec basePromptSpec() {
