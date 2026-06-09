@@ -51,13 +51,22 @@ components:
               - store
           status:
             type: string
-            description: Current lifecycle state for the stream or operation.
+            description: |
+              Current lifecycle state for the stream or operation.
+
+              The `connected`, `started`, `progress`, `completed`, and `failed`
+              values are emitted by the store operation channel. The
+              `executing`, `executed`, and `pushed` values are emitted by the
+              prompt-execution channel (issue #352 deferred-push save flow).
             enum:
               - connected
               - started
               - progress
               - completed
               - failed
+              - executing
+              - executed
+              - pushed
           message:
             type: string
             description: Human-readable status message.

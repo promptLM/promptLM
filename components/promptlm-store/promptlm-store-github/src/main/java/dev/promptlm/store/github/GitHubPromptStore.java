@@ -137,6 +137,26 @@ public class GitHubPromptStore implements PromptStore {
     }
 
     private PromptSpec storePrompt(PromptSpec promptSpec, String commitMessage, boolean ensureDevelopmentBranch) {
+        PromptSpec committed = commitLocally(promptSpec, commitMessage, ensureDevelopmentBranch);
+        File repo = appContext.getActiveProject().getRepoDir().toFile();
+        git.pushAll(repo);
+        return committed;
+    }
+
+    /**
+     * Persist a spec on disk and create a local commit on the development branch — no push.
+     * Used by the save flow (#352) so the remote does not see an empty-response commit.
+     */
+    @Override
+    public PromptSpec commitLocally(PromptSpec promptSpec) {
+        String commitMessage = String.format("Save prompt %s/%s rev %d",
+                promptSpec.getName(),
+                promptSpec.getGroup(),
+                Optional.ofNullable(promptSpec.getRevision()).orElse(0));
+        return commitLocally(promptSpec, commitMessage, true);
+    }
+
+    private PromptSpec commitLocally(PromptSpec promptSpec, String commitMessage, boolean ensureDevelopmentBranch) {
         File repo = appContext.getActiveProject().getRepoDir().toFile();
         if (ensureDevelopmentBranch) {
             switchToDevelopmentBranch(repo);
@@ -166,6 +186,40 @@ public class GitHubPromptStore implements PromptStore {
 
         saveToDisk(finalPromptSpec);
         git.addAllAndCommit(repo, commitMessage);
+        return finalPromptSpec;
+    }
+
+    /**
+     * Rewrite the YAML for {@code promptSpec} on disk, amend the HEAD commit (expected to
+     * have been authored by {@link #commitLocally(PromptSpec)}) so the amended commit is
+     * the with-response version, and push HEAD upstream.
+     *
+     * <p>Part of the deferred-push save flow (issue #352). The amend ensures the remote
+     * only ever sees the with-response commit — even if save+retry runs the LLM several
+     * times before success, only one remote commit ever lands.
+     */
+    @Override
+    public PromptSpec amendAndPushHead(PromptSpec promptSpec) {
+        if (appContext.getActiveProject() == null || appContext.getActiveProject().getRepoDir() == null) {
+            throw new IllegalStateException("No active project repository configured for push");
+        }
+        File repo = appContext.getActiveProject().getRepoDir().toFile();
+        switchToDevelopmentBranch(repo);
+
+        PromptSpec hashUpdatedPrompt = promptSpec.withSemanticHashComputed();
+        Path relativePath = resolvePromptSpecRelativePath(
+                repo.toPath(),
+                hashUpdatedPrompt.getGroup(),
+                hashUpdatedPrompt.getName());
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime createdAt = hashUpdatedPrompt.getCreatedAt() != null ? hashUpdatedPrompt.getCreatedAt() : now;
+        PromptSpec finalPromptSpec = hashUpdatedPrompt
+                .withCreatedAt(createdAt)
+                .withUpdatedAt(now)
+                .withPath(relativePath);
+
+        saveToDisk(finalPromptSpec);
+        git.amendHead(repo);
         git.pushAll(repo);
         return finalPromptSpec;
     }

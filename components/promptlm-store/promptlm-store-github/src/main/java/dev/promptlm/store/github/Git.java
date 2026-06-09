@@ -162,6 +162,29 @@ class Git {
         }
     }
 
+    /**
+     * Stage all current changes and amend the HEAD commit with them, preserving the existing
+     * commit message. Used by the deferred-push save flow (issue #352) so the remote only
+     * ever sees the final with-response version of a save commit.
+     *
+     * <p>If HEAD has no parent commit yet (fresh repo with a single initial commit), JGit's
+     * amend still works as long as a HEAD commit exists. The caller is responsible for
+     * ensuring there is a commit to amend.
+     */
+    public RevCommit amendHead(File repoPath) {
+        try (org.eclipse.jgit.api.Git git = org.eclipse.jgit.api.Git.open(repoPath)) {
+            addAllFiles(git, repoPath.toPath());
+            // setAmend(true) without setMessage(...) preserves the existing HEAD message.
+            RevCommit call = git.commit().setAmend(true).call();
+            log.debug("Amended HEAD commit: {}", call.name());
+            return call;
+        } catch (GitAPIException e) {
+            throw new GitException("Failed to amend HEAD commit", e);
+        } catch (IOException e) {
+            throw new GitException("Failed to amend HEAD commit", e);
+        }
+    }
+
     public static void add(File repoPath, String filepattern) throws GitAPIException {
         try (org.eclipse.jgit.api.Git git = org.eclipse.jgit.api.Git.open(repoPath)) {
             add(git, filepattern);

@@ -103,6 +103,12 @@ class PromptSpecControllerWebMvcTest {
     @MockitoBean
     private dev.promptlm.pricing.ModelPricingService modelPricingService;
 
+    @MockitoBean
+    private SseEmitterRegistry sseEmitterRegistry;
+
+    @MockitoBean
+    private SseStatusPublisher sseStatusPublisher;
+
     @Test
     void getDefaultTemplateReturnsCanonicalDraftSeed() throws Exception {
         PromptSpec.Placeholders placeholders = new PromptSpec.Placeholders();

@@ -30,6 +30,24 @@ public interface PromptStorePort {
 
     PromptSpec storePrompt(PromptSpec promptSpec);
 
+    /**
+     * Local-only persistence (write YAML + git commit, no push). Used by the save flow
+     * under issue #352. Default delegates to {@link #storePrompt(PromptSpec)} so test
+     * doubles continue to work unchanged.
+     */
+    default PromptSpec commitLocally(PromptSpec promptSpec) {
+        return storePrompt(promptSpec);
+    }
+
+    /**
+     * Rewrite {@code promptSpec}'s YAML on disk, amend the most recent local commit, and push
+     * HEAD upstream. Called from the post-execution push listener (issue #352). Default
+     * delegates to {@link #storePrompt(PromptSpec)} so test doubles continue to work.
+     */
+    default PromptSpec amendAndPushHead(PromptSpec promptSpec) {
+        return storePrompt(promptSpec);
+    }
+
     Optional<PromptSpec> getLatestVersion(String promptSpecId);
 
     PromptSpec requestRelease(PromptSpec promptSpec);
