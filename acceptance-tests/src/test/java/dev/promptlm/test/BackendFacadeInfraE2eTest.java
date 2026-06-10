@@ -124,10 +124,16 @@ class BackendFacadeInfraE2eTest {
     }
 
     /**
-     * Verifies prompt creation persists PromptSpec contract fields and prompt file in local and remote development branch.
+     * Verifies prompt creation persists PromptSpec contract fields and prompt file in local and remote development
+     * branch.
+     *
+     * <p>Per the {@code #352} deferred-push save flow, the remote write happens only after the LLM response is
+     * attached. The local commit appears immediately on save; the remote commit is amended-and-pushed by
+     * {@code PromptPushListener} on {@code PromptExecutedEvent}. This test therefore asserts the {@code #352}
+     * invariant: anything reaching the remote must carry a response — no orphan-response YAML is ever pushed.
      */
     @Test
-    @DisplayName("creates prompt spec and persists prompt file locally and in remote development branch")
+    @DisplayName("creates prompt spec and persists prompt file locally and in remote development branch after execution")
     void shouldCreatePromptSpecAndPersistPromptFileLocallyAndInRemoteDevelopmentBranch() throws Exception {
         JsonNode project = createStore(uniqueRepoName("create"));
         String group = "support";
@@ -160,6 +166,7 @@ class BackendFacadeInfraE2eTest {
         assertThat(localSpec.getGroup()).isEqualTo(group);
         assertThat(localSpec.getName()).isEqualTo(name);
 
+        // Remote write is deferred until PromptExecutedEvent → amend + push (see #352).
         String remoteRelativePath = "prompts/%s/%s/promptlm.yml".formatted(group, name);
         Optional<String> remoteYaml = awaitRemoteFile(project.path("repositoryUrl").asText(), remoteRelativePath);
         assertThat(remoteYaml).isPresent();
@@ -168,6 +175,10 @@ class BackendFacadeInfraE2eTest {
         assertThat(remoteSpec.getId()).isEqualTo(promptId);
         assertThat(remoteSpec.getGroup()).isEqualTo(group);
         assertThat(remoteSpec.getName()).isEqualTo(name);
+        // Invariant from #352: anything that reaches the remote must carry a response.
+        assertThat(remoteSpec.getResponse())
+                .as("remote spec must carry an attached response — no orphan-response YAML reaches the remote")
+                .isNotNull();
     }
 
     /**
@@ -380,8 +391,10 @@ class BackendFacadeInfraE2eTest {
     }
 
     private Optional<String> awaitRemoteFile(String repoUrl, String relativePath) {
+        // Bumped from 60s to 180s for the #352 deferred-push flow: the remote write now waits for the
+        // PromptExecutedEvent (real LLM round-trip via OpenAI) before the amend+push fires.
         return await()
-                .atMost(Duration.ofSeconds(60))
+                .atMost(Duration.ofSeconds(180))
                 .pollInterval(Duration.ofSeconds(2))
                 .until(() -> GiteaRepositoryHelper.fetchRawFile(
                                 HTTP_CLIENT,

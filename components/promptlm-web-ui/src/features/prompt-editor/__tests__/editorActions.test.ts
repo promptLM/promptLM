@@ -157,7 +157,7 @@ describe('savePromptDraftAction', () => {
     expect(result.nextCreatedPromptId).toBe('prompt-1');
     expect(result.toast).toEqual({
       severity: 'success',
-      message: 'Prompt created.',
+      message: 'Saved. Running prompt…',
     });
   });
 
@@ -181,7 +181,7 @@ describe('savePromptDraftAction', () => {
     expect(updatePrompt).toHaveBeenCalledWith('prompt-1', expect.any(Object));
     expect(createPrompt).not.toHaveBeenCalled();
     expect(result.nextCreatedPromptId).toBe('prompt-1');
-    expect(result.toast.message).toBe('Prompt saved.');
+    expect(result.toast.message).toBe('Saved. Running prompt…');
   });
 
   it('updates and marks refresh in edit mode', async () => {
@@ -204,7 +204,7 @@ describe('savePromptDraftAction', () => {
 
     expect(result.updatedPrompt).toEqual(updated);
     expect(result.shouldRefreshPrompt).toBe(true);
-    expect(result.toast.message).toBe('Prompt saved.');
+    expect(result.toast.message).toBe('Saved. Running prompt…');
   });
 
   it('returns display errors from failing mutations', async () => {

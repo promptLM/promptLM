@@ -5,13 +5,14 @@ brand-styled HTML pages under `site/docs/` by
 [`scripts/build-docs.mjs`](../scripts/build-docs.mjs). The output is part
 of the static GitHub Pages site served from `site/`.
 
-> **Status:** seven pages are live and verified against the codebase —
+> **Status:** eight pages are live and verified against the codebase —
 > the Get Started flow (Introduction, Install, Your first prompt,
-> Studio, Configuration), CLI reference, and Lifecycle states. The
-> remaining sidebar items (Prompt specs, Releases, Evaluations, the
-> three client SDKs, macOS, JUnit support, LLM providers, REST API,
-> PromptSpec schema, Config schema) are real product surfaces but
-> haven't been authored yet — they show as greyed placeholders.
+> Studio, Configuration), CLI reference, Lifecycle states, and Prompt
+> specs. The remaining sidebar items (Releases, the three client SDKs,
+> macOS, LLM providers, REST API, PromptSpec schema, Config schema)
+> are real product surfaces but haven't been authored yet — they show
+> as greyed placeholders. Evaluations and JUnit test support are out
+> of scope for 0.1.0 and have been dropped from the nav.
 > Tracking issue: [#205](https://github.com/promptLM/promptlm-app/issues/205).
 > Please claim a section there before authoring.
 

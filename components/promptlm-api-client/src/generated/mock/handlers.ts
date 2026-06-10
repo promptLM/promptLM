@@ -314,6 +314,36 @@ export const retirePrompt_default: MockHandler<
 };
 
 /**
+ * POST /api/prompts/{promptSpecId}/execute/retry
+ *
+ * Default handler — returns the schema-derived example for status 202.
+ */
+export const retryExecution_default: MockHandler<
+  undefined,
+  undefined
+> = (args) => {
+  return {
+    status: 202,
+    body: exampleResponses["retryExecution"]["202"] as undefined,
+  };
+};
+
+/**
+ * POST /api/prompts/{promptSpecId}/push/retry
+ *
+ * Default handler — returns the schema-derived example for status 202.
+ */
+export const retryPush_default: MockHandler<
+  undefined,
+  undefined
+> = (args) => {
+  return {
+    status: 202,
+    body: exampleResponses["retryPush"]["202"] as undefined,
+  };
+};
+
+/**
  * POST /api/store/switch/{projectId}
  *
  * Default handler — delegates to state.handleSwitchProject().
@@ -363,6 +393,8 @@ export const defaultHandlers = {
   listPromptSpecs: listPromptSpecs_default,
   releasePrompt: releasePrompt_default,
   retirePrompt: retirePrompt_default,
+  retryExecution: retryExecution_default,
+  retryPush: retryPush_default,
   switchProject: switchProject_default,
   updatePromptSpec: updatePromptSpec_default,
 } as const;
