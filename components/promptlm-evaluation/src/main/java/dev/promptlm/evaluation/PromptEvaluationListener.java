@@ -22,7 +22,8 @@ import dev.promptlm.domain.promptspec.PromptSpec;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.modulith.events.ApplicationModuleListener;
+import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -37,7 +38,8 @@ class PromptEvaluationListener {
         this.eventPublisher = eventPublisher;
     }
 
-    @ApplicationModuleListener
+    @EventListener
+    @Async
     void onPromptExecuted(PromptExecutedEvent event) {
         PromptSpec promptSpec = event.promptSpec();
         String promptId = promptSpec == null || promptSpec.getId() == null ? "<none>" : promptSpec.getId();

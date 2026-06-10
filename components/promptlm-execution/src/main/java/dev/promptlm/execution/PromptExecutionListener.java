@@ -24,7 +24,8 @@ import dev.promptlm.domain.promptspec.PromptSpec;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.modulith.events.ApplicationModuleListener;
+import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 
 /**
@@ -48,12 +49,14 @@ class PromptExecutionListener {
         this.eventPublisher = eventPublisher;
     }
 
-    @ApplicationModuleListener
+    @EventListener
+    @Async
     void onPromptCreated(PromptCreatedEvent event) {
         runAndPublish(event.promptSpec());
     }
 
-    @ApplicationModuleListener
+    @EventListener
+    @Async
     void onPromptUpdated(PromptUpdatedEvent event) {
         runAndPublish(event.promptSpec());
     }
