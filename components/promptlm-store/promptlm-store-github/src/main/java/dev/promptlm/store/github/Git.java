@@ -174,14 +174,32 @@ class Git {
     public RevCommit amendHead(File repoPath) {
         try (org.eclipse.jgit.api.Git git = org.eclipse.jgit.api.Git.open(repoPath)) {
             addAllFiles(git, repoPath.toPath());
-            // setAmend(true) without setMessage(...) preserves the existing HEAD message.
-            RevCommit call = git.commit().setAmend(true).call();
+            // JGit's CommitCommand.setAmend(true) does NOT auto-preserve the existing HEAD
+            // message — it requires setMessage(...) explicitly or throws NoMessageException.
+            // Read HEAD's full commit message and pass it through to keep the amended commit's
+            // message identical to the original "Save prompt …" commit produced by commitLocally.
+            String headMessage = resolveHeadCommitMessage(git);
+            RevCommit call = git.commit()
+                    .setAmend(true)
+                    .setMessage(headMessage)
+                    .call();
             log.debug("Amended HEAD commit: {}", call.name());
             return call;
         } catch (GitAPIException e) {
             throw new GitException("Failed to amend HEAD commit", e);
         } catch (IOException e) {
             throw new GitException("Failed to amend HEAD commit", e);
+        }
+    }
+
+    private static String resolveHeadCommitMessage(org.eclipse.jgit.api.Git git) throws IOException, GitAPIException {
+        try (org.eclipse.jgit.revwalk.RevWalk walk = new org.eclipse.jgit.revwalk.RevWalk(git.getRepository())) {
+            Ref head = git.getRepository().exactRef("HEAD");
+            if (head == null || head.getObjectId() == null) {
+                throw new GitException("Cannot amend: HEAD has no commit yet");
+            }
+            RevCommit headCommit = walk.parseCommit(head.getObjectId());
+            return headCommit.getFullMessage();
         }
     }
 
