@@ -18,7 +18,8 @@ package dev.promptlm.lifecycle;
 
 import dev.promptlm.domain.events.PromptEvaluatedEvent;
 import dev.promptlm.lifecycle.application.PromptLifecycleService;
-import org.springframework.modulith.events.ApplicationModuleListener;
+import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -29,7 +30,8 @@ class PromptPersistenceListener {
         this.promptLifecycleService = promptLifecycleService;
     }
 
-    @ApplicationModuleListener
+    @EventListener
+    @Async
     void onPromptEvaluated(PromptEvaluatedEvent event) {
         promptLifecycleService.persistEvaluatedPrompt(event.promptSpec());
     }

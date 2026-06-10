@@ -17,6 +17,7 @@ import type { StoreStatusEvent } from '@promptlm/api-client';
 
 import {
   createStoreOperationId,
+  isTerminalPromptExecutionStatusEvent,
   isTerminalStoreStatusEvent,
   subscribeToStoreOperationStatus,
 } from '@api-common/storeStatusEvents';
@@ -149,6 +150,58 @@ describe('storeStatusEvents', () => {
         status: 'progress',
         message: 'Still cloning',
         timestamp: '2026-03-20T10:00:00.000Z',
+      }),
+    ).toBe(false);
+  });
+
+  it('treats failed, pushed, and push-failed as terminal prompt-execution states', () => {
+    // Issue #361: `push-failed` joins `failed` and `pushed` as terminal states so the
+    // editor subscription tears down once the server has reported a definitive outcome.
+    const at = '2026-04-01T10:00:00.000Z';
+
+    expect(
+      isTerminalPromptExecutionStatusEvent({
+        operation: 'prompt-execution',
+        status: 'failed',
+        message: 'Prompt execution failed',
+        timestamp: at,
+      }),
+    ).toBe(true);
+
+    expect(
+      isTerminalPromptExecutionStatusEvent({
+        operation: 'prompt-execution',
+        status: 'pushed',
+        message: 'Pushed to GitHub',
+        timestamp: at,
+      }),
+    ).toBe(true);
+
+    expect(
+      isTerminalPromptExecutionStatusEvent({
+        operation: 'prompt-execution',
+        status: 'push-failed',
+        message: 'Push to GitHub failed',
+        timestamp: at,
+      }),
+    ).toBe(true);
+
+    // Non-terminal intermediate states are still streamed through.
+    expect(
+      isTerminalPromptExecutionStatusEvent({
+        operation: 'prompt-execution',
+        status: 'executed',
+        message: 'Prompt executed',
+        timestamp: at,
+      }),
+    ).toBe(false);
+
+    expect(
+      isTerminalPromptExecutionStatusEvent({
+        operation: 'prompt-execution',
+        status: 'executing',
+        message: 'Executing prompt',
+        timestamp: at,
       }),
     ).toBe(false);
   });

@@ -72,6 +72,9 @@ import { useTokenEstimate } from './useTokenEstimate';
 import { usePromptEditorData } from './usePromptEditorData';
 import { usePromptFormDirty } from './dirtyState';
 import { UnsavedChangesDialog } from './UnsavedChangesDialog';
+import { usePromptExecutionSubscription } from './usePromptExecutionSubscription';
+import { PromptExecutionStatusPanel } from './PromptExecutionStatusPanel';
+import { retryPromptExecution } from './retryPromptExecution';
 import { useCapabilities } from '@/api/hooks';
 import { useGeneratedApiClient } from '@api-common/generatedClientProvider';
 import { featureFlags } from '@/lib/featureFlags';
@@ -233,6 +236,15 @@ export const PromptFormShell = ({ mode, promptId }: PromptFormShellProps) => {
   const [baseline, setBaseline] = useState<PromptEditorState | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const pendingNavigationRef = useRef<(() => void) | null>(null);
+
+  // Issue #360 — subscribe to the prompt-execution SSE channel after each
+  // successful save. The hook owns subscription lifecycle (strict-mode safe)
+  // and exposes a small state machine driving `PromptExecutionStatusPanel`.
+  const executionSubscription = usePromptExecutionSubscription();
+  const [isRetryingExecution, setIsRetryingExecution] = useState(false);
+  // Last prompt id whose execution we tracked — used by Retry to resubscribe
+  // and by the auto-dismiss timer on the transient `pushed` state.
+  const lastExecutionPromptIdRef = useRef<string | null>(null);
 
   // Issue #241 — guard against re-hydration clobbering user input. The
   // hydration effect below depends on `data.prompt` / `data.promptTemplate`;
@@ -452,18 +464,73 @@ export const PromptFormShell = ({ mode, promptId }: PromptFormShellProps) => {
     if (result.nextCreatedPromptId !== createdPromptId) {
       setCreatedPromptId(result.nextCreatedPromptId);
     }
+    // Issue #360 — kick off the prompt-execution SSE subscription once we
+    // have a valid prompt id. The backend executes asynchronously after a
+    // successful save; this surfaces the executing → executed → pushed (or
+    // failed) progression in the response panel.
+    if (result.toast.severity === 'success') {
+      const trackedId =
+        result.nextCreatedPromptId ?? data.promptId ?? createdPromptId ?? null;
+      if (trackedId) {
+        lastExecutionPromptIdRef.current = trackedId;
+        executionSubscription.start(trackedId, {
+          onExecuted: async () => {
+            // Refetch the prompt so the streamed response renders in the
+            // response panel below the form. Best-effort — the hook ignores
+            // refetch failures so a hiccup doesn't trip the failed state.
+            if (mode === 'edit') {
+              await data.refreshPrompt();
+            }
+          },
+        });
+      }
+    }
     return result;
   }, [
     createdPromptId,
     data,
     editor,
     evaluationEnabledForPayload,
+    executionSubscription,
     mode,
   ]);
 
   const handleSaveDraft = useCallback(async () => {
     await persistDraft();
   }, [persistDraft]);
+
+  // Issue #360 — Retry calls the dedicated backend endpoint and resubscribes
+  // to the execution channel. Reuses the most recently-tracked prompt id
+  // (captured by `persistDraft`).
+  const handleRetryExecution = useCallback(async () => {
+    const promptSpecId = lastExecutionPromptIdRef.current;
+    if (!promptSpecId || isRetryingExecution) return;
+    setIsRetryingExecution(true);
+    try {
+      await retryPromptExecution({ promptSpecId });
+      executionSubscription.start(promptSpecId, {
+        onExecuted: async () => {
+          if (mode === 'edit') {
+            await data.refreshPrompt();
+          }
+        },
+      });
+    } catch {
+      // Leave the panel in `failed` so the user can retry again. The hook's
+      // own error path will surface stream errors; the POST-level failure
+      // surfaces below via the existing toast pipeline if we ever wire one.
+    } finally {
+      setIsRetryingExecution(false);
+    }
+  }, [data, executionSubscription, isRetryingExecution, mode]);
+
+  // Issue #360 — auto-dismiss the `pushed` confirmation after 1.5s so it
+  // behaves like a transient pill rather than a permanent banner.
+  useEffect(() => {
+    if (executionSubscription.state !== 'pushed') return undefined;
+    const handle = window.setTimeout(() => executionSubscription.reset(), 1500);
+    return () => window.clearTimeout(handle);
+  }, [executionSubscription, executionSubscription.state]);
 
   const handleSubmit = useCallback(async () => {
     const saveResult = await persistDraft();
@@ -772,6 +839,16 @@ export const PromptFormShell = ({ mode, promptId }: PromptFormShellProps) => {
 
   return (
     <>
+      {executionSubscription.state !== 'idle' && (
+        <div style={{ padding: '8px 24px 0' }}>
+          <PromptExecutionStatusPanel
+            state={executionSubscription.state}
+            errorMessage={executionSubscription.errorMessage}
+            onRetry={handleRetryExecution}
+            isRetrying={isRetryingExecution}
+          />
+        </div>
+      )}
       <PromptFormPage
         mode={mode}
         draft={formDraft}

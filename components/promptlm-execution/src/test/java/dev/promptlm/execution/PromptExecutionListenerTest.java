@@ -18,6 +18,8 @@ package dev.promptlm.execution;
 
 import dev.promptlm.domain.events.PromptCreatedEvent;
 import dev.promptlm.domain.events.PromptExecutedEvent;
+import dev.promptlm.domain.events.PromptExecutionFailedEvent;
+import dev.promptlm.domain.events.PromptUpdatedEvent;
 import dev.promptlm.domain.promptspec.ChatCompletionRequest;
 import dev.promptlm.domain.promptspec.PromptSpec;
 import org.junit.jupiter.api.Test;
@@ -30,9 +32,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -64,17 +64,42 @@ class PromptExecutionListenerTest {
     }
 
     @Test
-    void doesNotPublishPromptExecutedEventWhenExecutionFails() {
+    void publishesPromptExecutedEventForUpdates() {
+        PromptSpec updated = basePromptSpec();
+        PromptSpec executed = updated.withDescription("executed");
+
+        when(promptExecutor.runPromptAndAttachResponse(updated)).thenReturn(executed);
+
+        PromptExecutionListener listener = new PromptExecutionListener(promptExecutor, eventPublisher);
+        listener.onPromptUpdated(new PromptUpdatedEvent(updated));
+
+        verify(promptExecutor).runPromptAndAttachResponse(updated);
+        ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        assertThat(eventCaptor.getValue()).isInstanceOf(PromptExecutedEvent.class);
+    }
+
+    @Test
+    void publishesPromptExecutionFailedEventWhenExecutionFailsInsteadOfRethrowing() {
+        // #352: under the deferred-push design the LLM run is async. A failure here must
+        // not be rethrown — that would mark the @ApplicationModuleListener delivery as
+        // failed and surface noise. The push listener also must not run, so emit the
+        // failure event instead.
         PromptSpec created = basePromptSpec();
-        RuntimeException failure = new RuntimeException("execution failed");
+        RuntimeException failure = new RuntimeException("vendor 500");
 
         when(promptExecutor.runPromptAndAttachResponse(created)).thenThrow(failure);
 
         PromptExecutionListener listener = new PromptExecutionListener(promptExecutor, eventPublisher);
-        assertThatThrownBy(() -> listener.onPromptCreated(new PromptCreatedEvent(created)))
-                .isSameAs(failure);
+        listener.onPromptCreated(new PromptCreatedEvent(created));
 
-        verifyNoInteractions(eventPublisher);
+        ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        assertThat(eventCaptor.getValue()).isInstanceOf(PromptExecutionFailedEvent.class);
+        PromptExecutionFailedEvent failed = (PromptExecutionFailedEvent) eventCaptor.getValue();
+        assertThat(failed.promptSpec()).isEqualTo(created);
+        assertThat(failed.reason()).isEqualTo("vendor 500");
+        assertThat(failed.errorClass()).isEqualTo("RuntimeException");
     }
 
     private static PromptSpec basePromptSpec() {
