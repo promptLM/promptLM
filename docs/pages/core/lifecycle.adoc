@@ -4,8 +4,8 @@
 :page-description: The four states a PromptSpec moves through, from in-flight edit to remote-pushed.
 :page-prev-label: Configuration
 :page-prev-href: configuration.html
-:page-next-label: CLI
-:page-next-href: cli.html
+:page-next-label: Prompt specs
+:page-next-href: prompt-specs.html
 
 Every `PromptSpec` carries one of four lifecycle states. The state is
 a function of where the spec's content lives along the persistence
