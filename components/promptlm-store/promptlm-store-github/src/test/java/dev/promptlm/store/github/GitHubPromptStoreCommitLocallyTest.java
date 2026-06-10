@@ -38,40 +38,53 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 /**
- * Issue #352 invariant: the save flow must never push.
+ * Issue #352 invariant: the save flow must never write to the remote.
  *
- * <p>{@link GitHubPromptStore#commitLocally(PromptSpec)} writes YAML, stages, and commits —
- * but it MUST NOT invoke {@link Git#pushAll(File)}. The push only happens once, later, in
- * the post-execution {@code amendAndPushHead(...)} branch.
+ * <p>Under the Option-A deferred-push design ({@code commitLocally} stages only; the single
+ * commit + push happens in {@code amendAndPushHead} once the LLM response is attached):
+ * <ul>
+ *   <li>{@link GitHubPromptStore#commitLocally(PromptSpec)} writes YAML and stages — but
+ *   does NOT commit and does NOT push. No git history exists for the prompt until the
+ *   executor's listener fires.</li>
+ *   <li>{@link GitHubPromptStore#amendAndPushHead(PromptSpec)} writes the response-bearing
+ *   YAML, creates a single commit, and pushes once. It does not amend any existing commit
+ *   (the historical name is preserved to keep the API stable; the semantics changed when
+ *   the HEAD-moving race caught by HappyPathUserJourneyTest.releasePrompt forced the move
+ *   to stage-only saves).</li>
+ * </ul>
  */
 class GitHubPromptStoreCommitLocallyTest {
 
     @Test
-    void commitLocallyWritesAndCommitsButDoesNotPush(@TempDir Path repoDir) {
+    void commitLocallyStagesButDoesNotCommitOrPush(@TempDir Path repoDir) {
         Git git = mock(Git.class);
         GitHubPromptStore store = newStore(repoDir, git);
         PromptSpec spec = baseSpec();
 
         store.commitLocally(spec);
 
-        // The save flow stages + commits its own message. Local-only — no push.
+        // Save flow ensures the dev branch is checked out and stages all changes. No commit,
+        // no push — those happen later, in amendAndPushHead, once the response is attached.
         verify(git).checkoutOrCreateBranch(anyString(), any(File.class));
-        verify(git).addAllAndCommit(any(File.class), anyString());
+        verify(git).stageAll(any(File.class));
+        verify(git, never()).addAllAndCommit(any(File.class), anyString());
         verify(git, never()).pushAll(any(File.class));
     }
 
     @Test
-    void amendAndPushHeadAmendsThenPushes(@TempDir Path repoDir) {
+    void amendAndPushHeadCommitsAndPushes(@TempDir Path repoDir) {
         Git git = mock(Git.class);
         GitHubPromptStore store = newStore(repoDir, git);
         PromptSpec executed = baseSpec().withResponse(new ChatCompletionResponse(12L, null, "answer"));
 
         store.amendAndPushHead(executed);
 
-        verify(git).amendHead(any(File.class));
+        // Single commit + push. NOT an amend — the stage-only commitLocally leaves no
+        // commit to amend, so the deferred-push step writes the response-bearing commit
+        // outright and pushes once. This sidesteps the HEAD-moving race.
+        verify(git).addAllAndCommit(any(File.class), anyString());
         verify(git).pushAll(any(File.class));
-        // amendAndPushHead must NEVER produce a second (non-amend) commit.
-        verify(git, never()).addAllAndCommit(any(File.class), anyString());
+        verify(git, never()).amendHead(any(File.class));
     }
 
     private static PromptSpec baseSpec() {

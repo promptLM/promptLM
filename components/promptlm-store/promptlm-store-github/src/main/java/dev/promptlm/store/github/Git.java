@@ -163,6 +163,22 @@ class Git {
     }
 
     /**
+     * Stage all current working-tree changes without committing. Used by the deferred-push save
+     * flow (issue #352) — the save records changes in the index; the actual commit is created
+     * later by {@link #addAllAndCommit(File, String)} in the push step, once the LLM response
+     * has been attached. Avoids the HEAD-moving race that an "amend HEAD" strategy hits when a
+     * release or another save lands between commitLocally and the executor's listener firing.
+     */
+    public void stageAll(File repoPath) {
+        try (org.eclipse.jgit.api.Git git = org.eclipse.jgit.api.Git.open(repoPath)) {
+            addAllFiles(git, repoPath.toPath());
+            log.debug("Staged all changes (no commit)");
+        } catch (IOException e) {
+            throw new GitException("Failed to stage all changes", e);
+        }
+    }
+
+    /**
      * Stage all current changes and amend the HEAD commit with them, preserving the existing
      * commit message. Used by the deferred-push save flow (issue #352) so the remote only
      * ever sees the final with-response version of a save commit.
