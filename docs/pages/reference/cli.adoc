@@ -2,8 +2,8 @@
 :page-slug: cli
 :page-section: REFERENCE
 :page-description: All promptlm-cli commands and flags, verified against the source.
-:page-prev-label: Lifecycle states
-:page-prev-href: lifecycle.html
+:page-prev-label: Prompt specs
+:page-prev-href: prompt-specs.html
 
 Every command, flag, and default below is taken directly from the
 picocli `@Command` / `@Option` annotations in the CLI module under

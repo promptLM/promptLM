@@ -131,7 +131,7 @@ class DefaultPromptLifecycleServiceTest {
         when(repository.findPromptSpec(GROUP, NAME)).thenReturn(Optional.empty());
         when(repository.findPromptSpecTemplate(GROUP)).thenReturn("template");
         when(template.render(eq("template"), eq(GROUP), eq(NAME), any(), any(), any())).thenReturn(rendered);
-        when(repository.storePrompt(withId)).thenReturn(withId);
+        when(repository.commitLocally(withId)).thenReturn(withId);
 
         PromptSpec result = service.createPrompt(GROUP, Map.of(), NAME, List.of(), new PromptSpec.Placeholders(), Map.of());
 
@@ -174,14 +174,14 @@ class DefaultPromptLifecycleServiceTest {
 
         when(repository.findPromptSpec(GROUP, NAME)).thenReturn(Optional.empty());
         when(idGenerator.generateId(eq(GROUP), eq(NAME), any())).thenReturn(PROMPT_ID);
-        when(repository.storePrompt(any(PromptSpec.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(repository.commitLocally(any(PromptSpec.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         service.createPromptSpec(mixedCase);
 
         ArgumentCaptor<PromptSpec> storedCaptor = ArgumentCaptor.forClass(PromptSpec.class);
         verify(repository).findPromptSpec(GROUP, NAME);
         verify(idGenerator).generateId(eq(GROUP), eq(NAME), any());
-        verify(repository).storePrompt(storedCaptor.capture());
+        verify(repository).commitLocally(storedCaptor.capture());
 
         PromptSpec stored = storedCaptor.getValue();
         assertThat(stored.getGroup()).isEqualTo(GROUP);
@@ -232,7 +232,7 @@ class DefaultPromptLifecycleServiceTest {
         assertThat(updating.hasSemanticChangesComparedTo(existing)).isTrue();
 
         when(repository.getLatestVersion(PROMPT_ID)).thenReturn(Optional.of(existing));
-        when(repository.storePrompt(any(PromptSpec.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(repository.commitLocally(any(PromptSpec.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         PromptSpec result = service.updatePrompt(PROMPT_ID, updating);
 
@@ -242,7 +242,7 @@ class DefaultPromptLifecycleServiceTest {
         assertThat(result.getRevision()).isEqualTo(4);
 
         verify(repository).getLatestVersion(PROMPT_ID);
-        verify(repository).storePrompt(result);
+        verify(repository).commitLocally(result);
     }
 
     @Test
@@ -256,7 +256,7 @@ class DefaultPromptLifecycleServiceTest {
                 .withDescription("new-desc");
 
         when(repository.getLatestVersion(PROMPT_ID)).thenReturn(Optional.of(existing));
-        when(repository.storePrompt(any(PromptSpec.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(repository.commitLocally(any(PromptSpec.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         PromptSpec result = service.updatePrompt(PROMPT_ID, updating);
 
@@ -265,7 +265,7 @@ class DefaultPromptLifecycleServiceTest {
         assertThat(result.getResponse()).isEqualTo(existingResponse);
 
         verify(repository).getLatestVersion(PROMPT_ID);
-        verify(repository).storePrompt(result);
+        verify(repository).commitLocally(result);
     }
 
     @Test
@@ -275,7 +275,7 @@ class DefaultPromptLifecycleServiceTest {
         PromptSpec updating = existing.withResponse(capturedResponse);
 
         when(repository.getLatestVersion(PROMPT_ID)).thenReturn(Optional.of(existing));
-        when(repository.storePrompt(any(PromptSpec.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(repository.commitLocally(any(PromptSpec.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         PromptSpec result = service.updatePrompt(PROMPT_ID, updating);
 
@@ -283,7 +283,7 @@ class DefaultPromptLifecycleServiceTest {
         assertThat(result.getResponse()).isEqualTo(capturedResponse);
 
         verify(repository).getLatestVersion(PROMPT_ID);
-        verify(repository).storePrompt(result);
+        verify(repository).commitLocally(result);
     }
 
     @Test
@@ -298,14 +298,14 @@ class DefaultPromptLifecycleServiceTest {
                 .withDescription("new-desc");
 
         when(repository.getLatestVersion(PROMPT_ID)).thenReturn(Optional.of(existing));
-        when(repository.storePrompt(any(PromptSpec.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(repository.commitLocally(any(PromptSpec.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         PromptSpec result = service.updatePrompt(PROMPT_ID, updating);
 
         assertThat(result.getExtensions()).containsEntry("x-legacy", extensionNode);
 
         verify(repository).getLatestVersion(PROMPT_ID);
-        verify(repository).storePrompt(result);
+        verify(repository).commitLocally(result);
     }
 
     @Test
@@ -322,7 +322,7 @@ class DefaultPromptLifecycleServiceTest {
                 .withExtensions(Map.of("x-new", newNode));
 
         when(repository.getLatestVersion(PROMPT_ID)).thenReturn(Optional.of(existing));
-        when(repository.storePrompt(any(PromptSpec.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(repository.commitLocally(any(PromptSpec.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         PromptSpec result = service.updatePrompt(PROMPT_ID, updating);
 
@@ -331,7 +331,7 @@ class DefaultPromptLifecycleServiceTest {
                 .containsEntry("x-new", newNode);
 
         verify(repository).getLatestVersion(PROMPT_ID);
-        verify(repository).storePrompt(result);
+        verify(repository).commitLocally(result);
     }
 
     @Test
@@ -1152,7 +1152,7 @@ class DefaultPromptLifecycleServiceTest {
         assertThat(updating.hasSemanticChangesComparedTo(existing)).isTrue();
 
         when(repository.getLatestVersion(PROMPT_ID)).thenReturn(Optional.of(existing));
-        when(repository.storePrompt(any(PromptSpec.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(repository.commitLocally(any(PromptSpec.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         PromptSpec result = service.updatePrompt(PROMPT_ID, updating);
 
@@ -1171,7 +1171,7 @@ class DefaultPromptLifecycleServiceTest {
         PromptSpec updating = existing.withDescription("new-desc");
 
         when(repository.getLatestVersion(PROMPT_ID)).thenReturn(Optional.of(existing));
-        when(repository.storePrompt(any(PromptSpec.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(repository.commitLocally(any(PromptSpec.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         PromptSpec result = service.updatePrompt(PROMPT_ID, updating);
 
