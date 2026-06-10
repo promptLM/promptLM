@@ -193,6 +193,14 @@ export const operationIndex: readonly OperationDescriptor[] = [
     successStatus: 200,
   },
   {
+    opId: "retryExecution",
+    method: "POST",
+    pathTemplate: "/api/prompts/{promptSpecId}/execute/retry",
+    pathPattern: "^/api/prompts/(?<promptSpecId>[^/]+)/execute/retry$",
+    pathParamNames: ["promptSpecId"],
+    successStatus: 202,
+  },
+  {
     opId: "switchProject",
     method: "POST",
     pathTemplate: "/api/store/switch/{projectId}",

@@ -13,7 +13,11 @@
 // limitations under the License.
 
 import { toDisplayError } from '@api-common/apiError';
-import type { PromptSpec, PromptSpecCreationRequest } from '@promptlm/api-client';
+import {
+  isTerminalPromptExecutionStatusEvent,
+  subscribeToPromptExecutionStatus,
+} from '@api-common/storeStatusEvents';
+import type { PromptSpec, PromptSpecCreationRequest, StoreStatusEvent } from '@promptlm/api-client';
 import type { PromptEditorExecution } from '@promptlm/ui';
 import { buildPromptSpecCreationRequest, type PromptDraftInput } from '@/api/promptPayloads';
 
@@ -88,6 +92,11 @@ export const savePromptDraftAction = async ({
   );
   const payload = buildPromptSpecCreationRequest(preparedDraft);
 
+  // #352: save is local-commit-only on the backend. The success toast reflects
+  // the deferred-push contract — "Saved" is the local commit; "executing…"
+  // signals the LLM run still in flight. Terminal state ("executed"+"pushed"
+  // or "failed") is delivered via the prompt-execution SSE channel; see
+  // `subscribeToPromptExecutionStatus`.
   try {
     if (mode === 'create' && !createdPromptId) {
       const created = await createPrompt(payload);
@@ -97,7 +106,7 @@ export const savePromptDraftAction = async ({
         shouldRefreshPrompt: false,
         toast: {
           severity: 'success',
-          message: 'Prompt created.',
+          message: 'Saved. Running prompt…',
         },
       };
     }
@@ -114,7 +123,7 @@ export const savePromptDraftAction = async ({
       shouldRefreshPrompt: mode === 'edit',
       toast: {
         severity: 'success',
-        message: 'Prompt saved.',
+        message: 'Saved. Running prompt…',
       },
     };
   } catch (error) {
@@ -128,6 +137,59 @@ export const savePromptDraftAction = async ({
       },
     };
   }
+};
+
+// #352: Subscribe to the prompt-execution SSE channel for a recently-saved
+// prompt. The caller wires up the callbacks (typically: replace the response
+// panel on `executed`, surface a Retry control on `failed`, dismiss the
+// "running…" toast on `pushed`). The subscription auto-closes once a terminal
+// status (`failed` or `pushed`) arrives.
+export type PromptExecutionSubscriptionHandlers = {
+  promptSpecId: string;
+  onExecuting?: (event: StoreStatusEvent) => void;
+  onExecuted?: (event: StoreStatusEvent) => void;
+  onFailed?: (event: StoreStatusEvent) => void;
+  onPushed?: (event: StoreStatusEvent) => void;
+  onError?: (error: Error) => void;
+};
+
+export const subscribeToPromptExecutionAfterSave = ({
+  promptSpecId,
+  onExecuting,
+  onExecuted,
+  onFailed,
+  onPushed,
+  onError,
+}: PromptExecutionSubscriptionHandlers): { close: () => void } => {
+  const subscription = subscribeToPromptExecutionStatus({
+    promptSpecId,
+    onStatus: (event) => {
+      switch (event.status) {
+        case 'executing':
+          onExecuting?.(event);
+          break;
+        case 'executed':
+          onExecuted?.(event);
+          break;
+        case 'failed':
+          onFailed?.(event);
+          break;
+        case 'pushed':
+          onPushed?.(event);
+          break;
+        default:
+          // `connected` and other shared lifecycle states are ignored here;
+          // callers that need them can use subscribeToPromptExecutionStatus
+          // directly.
+          break;
+      }
+      if (isTerminalPromptExecutionStatusEvent(event)) {
+        subscription.close();
+      }
+    },
+    onError,
+  });
+  return subscription;
 };
 
 export type ReleasePromptInput = {

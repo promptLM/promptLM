@@ -162,6 +162,63 @@ class Git {
         }
     }
 
+    /**
+     * Stage all current working-tree changes without committing. Used by the deferred-push save
+     * flow (issue #352) — the save records changes in the index; the actual commit is created
+     * later by {@link #addAllAndCommit(File, String)} in the push step, once the LLM response
+     * has been attached. Avoids the HEAD-moving race that an "amend HEAD" strategy hits when a
+     * release or another save lands between commitLocally and the executor's listener firing.
+     */
+    public void stageAll(File repoPath) {
+        try (org.eclipse.jgit.api.Git git = org.eclipse.jgit.api.Git.open(repoPath)) {
+            addAllFiles(git, repoPath.toPath());
+            log.debug("Staged all changes (no commit)");
+        } catch (IOException e) {
+            throw new GitException("Failed to stage all changes", e);
+        }
+    }
+
+    /**
+     * Stage all current changes and amend the HEAD commit with them, preserving the existing
+     * commit message. Used by the deferred-push save flow (issue #352) so the remote only
+     * ever sees the final with-response version of a save commit.
+     *
+     * <p>If HEAD has no parent commit yet (fresh repo with a single initial commit), JGit's
+     * amend still works as long as a HEAD commit exists. The caller is responsible for
+     * ensuring there is a commit to amend.
+     */
+    public RevCommit amendHead(File repoPath) {
+        try (org.eclipse.jgit.api.Git git = org.eclipse.jgit.api.Git.open(repoPath)) {
+            addAllFiles(git, repoPath.toPath());
+            // JGit's CommitCommand.setAmend(true) does NOT auto-preserve the existing HEAD
+            // message — it requires setMessage(...) explicitly or throws NoMessageException.
+            // Read HEAD's full commit message and pass it through to keep the amended commit's
+            // message identical to the original "Save prompt …" commit produced by commitLocally.
+            String headMessage = resolveHeadCommitMessage(git);
+            RevCommit call = git.commit()
+                    .setAmend(true)
+                    .setMessage(headMessage)
+                    .call();
+            log.debug("Amended HEAD commit: {}", call.name());
+            return call;
+        } catch (GitAPIException e) {
+            throw new GitException("Failed to amend HEAD commit", e);
+        } catch (IOException e) {
+            throw new GitException("Failed to amend HEAD commit", e);
+        }
+    }
+
+    private static String resolveHeadCommitMessage(org.eclipse.jgit.api.Git git) throws IOException, GitAPIException {
+        try (org.eclipse.jgit.revwalk.RevWalk walk = new org.eclipse.jgit.revwalk.RevWalk(git.getRepository())) {
+            Ref head = git.getRepository().exactRef("HEAD");
+            if (head == null || head.getObjectId() == null) {
+                throw new GitException("Cannot amend: HEAD has no commit yet");
+            }
+            RevCommit headCommit = walk.parseCommit(head.getObjectId());
+            return headCommit.getFullMessage();
+        }
+    }
+
     public static void add(File repoPath, String filepattern) throws GitAPIException {
         try (org.eclipse.jgit.api.Git git = org.eclipse.jgit.api.Git.open(repoPath)) {
             add(git, filepattern);

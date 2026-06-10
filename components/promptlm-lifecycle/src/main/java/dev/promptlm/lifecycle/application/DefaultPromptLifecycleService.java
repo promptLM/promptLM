@@ -19,6 +19,7 @@ package dev.promptlm.lifecycle.application;
 import dev.promptlm.domain.events.PromptCreatedEvent;
 import dev.promptlm.domain.events.PromptReleaseRequestedEvent;
 import dev.promptlm.domain.events.PromptReleasedEvent;
+import dev.promptlm.domain.events.PromptUpdatedEvent;
 import dev.promptlm.domain.promptspec.ChatCompletionRequest;
 import dev.promptlm.domain.promptspec.EvaluationStatus;
 import dev.promptlm.domain.promptspec.EvaluationResults;
@@ -109,7 +110,9 @@ class DefaultPromptLifecycleService implements PromptLifecycleService {
         if (extensions != null && !extensions.isEmpty()) {
             promptSpec = promptSpec.withExtensions(mergeExtensions(promptSpec.getExtensions(), extensions));
         }
-        PromptSpec stored = repository.storePrompt(promptSpec);
+        // #352: save commits locally only. The post-execution push listener handles the
+        // single remote write once the LLM response has been attached.
+        PromptSpec stored = repository.commitLocally(promptSpec);
         eventPublisher.publishEvent(new PromptCreatedEvent(stored));
         return stored;
     }
@@ -140,7 +143,9 @@ class DefaultPromptLifecycleService implements PromptLifecycleService {
                         extractMessages(normalizedSpec)
                 ));
 
-        PromptSpec stored = repository.storePrompt(withId);
+        // #352: save commits locally only. The post-execution push listener performs
+        // the single remote push once the LLM response has been attached.
+        PromptSpec stored = repository.commitLocally(withId);
         eventPublisher.publishEvent(new PromptCreatedEvent(stored));
         return stored;
     }
@@ -220,7 +225,9 @@ class DefaultPromptLifecycleService implements PromptLifecycleService {
                 ? increaseRevision(updated).withExecutions(List.of())
                 : updated;
         PromptSpec hashed = versioned.withSemanticHashComputed();
-        repository.storePrompt(hashed);
+        // #352: save commits locally only. The push happens after async execution.
+        repository.commitLocally(hashed);
+        eventPublisher.publishEvent(new PromptUpdatedEvent(hashed));
         return hashed;
     }
 

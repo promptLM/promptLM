@@ -35,6 +35,37 @@ public interface PromptStore {
     PromptSpec storePrompt(PromptSpec promptSpec);
 
     /**
+     * Persist {@code promptSpec} locally (write YAML, stage, commit) without pushing to the
+     * remote. Used by the save flow under issue #352 so that the remote only ever sees the
+     * with-response version of the spec.
+     *
+     * <p>Default implementation delegates to {@link #storePrompt(PromptSpec)} for backends
+     * that do not distinguish local vs. remote writes (e.g. in-memory test fakes).
+     *
+     * @param promptSpec the spec to persist
+     * @return the spec as actually persisted (with path, timestamps, etc. populated)
+     */
+    default PromptSpec commitLocally(PromptSpec promptSpec) {
+        return storePrompt(promptSpec);
+    }
+
+    /**
+     * Rewrite the given {@code promptSpec}'s YAML on disk, amend the most recent local commit
+     * on HEAD with those contents, and push HEAD to its tracked remote. Called by the
+     * post-execution push listener (issue #352) once the LLM response has been attached.
+     *
+     * <p>The amend-then-push pair guarantees the remote sees exactly one commit per save —
+     * the with-response version — even if the user saves and the LLM fails several times
+     * before eventually succeeding.
+     *
+     * <p>Default implementation delegates to {@link #storePrompt(PromptSpec)} for backends
+     * that do not distinguish local vs. remote writes (e.g. in-memory test fakes).
+     */
+    default PromptSpec amendAndPushHead(PromptSpec promptSpec) {
+        return storePrompt(promptSpec);
+    }
+
+    /**
      * Retrieves the latest version of a prompt specification by ID.
      *
      * @param promptId The unique identifier of the prompt.

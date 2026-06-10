@@ -137,6 +137,53 @@ public class GitHubPromptStore implements PromptStore {
     }
 
     private PromptSpec storePrompt(PromptSpec promptSpec, String commitMessage, boolean ensureDevelopmentBranch) {
+        PromptSpec committed = commitLocally(promptSpec, commitMessage, ensureDevelopmentBranch);
+        File repo = appContext.getActiveProject().getRepoDir().toFile();
+        git.pushAll(repo);
+        return committed;
+    }
+
+    /**
+     * Persist a spec on disk and stage it (git add) on the development branch — no commit, no
+     * push. Used by the save flow (#352).
+     *
+     * <p>The actual commit + push is performed later by {@link #amendAndPushHead(PromptSpec)}
+     * once the LLM response has been attached. Staging-only (instead of "commit locally then
+     * amend on push") avoids the HEAD-moving race that hits when a release or another save
+     * lands between the save commit and the executor's async listener firing — there is
+     * simply no commit to amend.
+     */
+    @Override
+    public PromptSpec commitLocally(PromptSpec promptSpec) {
+        File repo = appContext.getActiveProject().getRepoDir().toFile();
+        switchToDevelopmentBranch(repo);
+        PromptSpec hashUpdatedPrompt = promptSpec.withSemanticHashComputed();
+
+        Path relativePath = resolvePromptSpecRelativePath(repo.toPath(), hashUpdatedPrompt.getGroup(), hashUpdatedPrompt.getName());
+        Path specPath = repo.toPath().resolve(relativePath);
+
+        LocalDateTime now = LocalDateTime.now();
+        PromptSpec finalPromptSpec;
+
+        if (Files.exists(specPath)) {
+            LocalDateTime createdAt = hashUpdatedPrompt.getCreatedAt() != null ? hashUpdatedPrompt.getCreatedAt() : now;
+            finalPromptSpec = hashUpdatedPrompt
+                    .withCreatedAt(createdAt)
+                    .withUpdatedAt(now)
+                    .withPath(relativePath);
+        } else {
+            finalPromptSpec = hashUpdatedPrompt
+                    .withCreatedAt(now)
+                    .withUpdatedAt(now)
+                    .withPath(relativePath);
+        }
+
+        saveToDisk(finalPromptSpec);
+        git.stageAll(repo);
+        return finalPromptSpec;
+    }
+
+    private PromptSpec commitLocally(PromptSpec promptSpec, String commitMessage, boolean ensureDevelopmentBranch) {
         File repo = appContext.getActiveProject().getRepoDir().toFile();
         if (ensureDevelopmentBranch) {
             switchToDevelopmentBranch(repo);
@@ -163,6 +210,47 @@ public class GitHubPromptStore implements PromptStore {
                     .withUpdatedAt(now)
                     .withPath(relativePath);
         }
+
+        saveToDisk(finalPromptSpec);
+        git.addAllAndCommit(repo, commitMessage);
+        return finalPromptSpec;
+    }
+
+    /**
+     * Rewrite the YAML for {@code promptSpec} on disk (now carrying the LLM response), create
+     * a single commit on the development branch, and push.
+     *
+     * <p>Part of the deferred-push save flow (issue #352). Despite the historical name,
+     * this does NOT amend an existing commit — the {@link #commitLocally(PromptSpec)} step
+     * only stages, no commit exists yet. A single fresh commit is produced and pushed here,
+     * preserving the #352 invariant ("no remote write without response") while eliminating
+     * the HEAD-moving race that an actual amend would hit when other ops (release flow,
+     * concurrent save) advance HEAD between save and listener execution.
+     */
+    @Override
+    public PromptSpec amendAndPushHead(PromptSpec promptSpec) {
+        if (appContext.getActiveProject() == null || appContext.getActiveProject().getRepoDir() == null) {
+            throw new IllegalStateException("No active project repository configured for push");
+        }
+        File repo = appContext.getActiveProject().getRepoDir().toFile();
+        switchToDevelopmentBranch(repo);
+
+        PromptSpec hashUpdatedPrompt = promptSpec.withSemanticHashComputed();
+        Path relativePath = resolvePromptSpecRelativePath(
+                repo.toPath(),
+                hashUpdatedPrompt.getGroup(),
+                hashUpdatedPrompt.getName());
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime createdAt = hashUpdatedPrompt.getCreatedAt() != null ? hashUpdatedPrompt.getCreatedAt() : now;
+        PromptSpec finalPromptSpec = hashUpdatedPrompt
+                .withCreatedAt(createdAt)
+                .withUpdatedAt(now)
+                .withPath(relativePath);
+
+        String commitMessage = String.format("Save prompt %s/%s rev %d",
+                finalPromptSpec.getName(),
+                finalPromptSpec.getGroup(),
+                Optional.ofNullable(finalPromptSpec.getRevision()).orElse(0));
 
         saveToDisk(finalPromptSpec);
         git.addAllAndCommit(repo, commitMessage);
