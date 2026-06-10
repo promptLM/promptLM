@@ -138,7 +138,7 @@ A minimal chat-completion spec as it appears on disk:
 
 [source,yaml]
 ----
-specVersion: null
+specVersion: 1
 uuid: 8d5b6a30-9b3e-4f4c-9b8b-1f3d2a1e5c4f
 id: support_welcome
 name: support_welcome
