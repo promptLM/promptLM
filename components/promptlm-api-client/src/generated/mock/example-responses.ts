@@ -100,6 +100,10 @@ export const exampleResponses = {
     "202": undefined,
     "404": undefined
   },
+  "retryPush": {
+    "202": undefined,
+    "404": undefined
+  },
   "switchProject": {
     "200": undefined,
     "500": undefined
