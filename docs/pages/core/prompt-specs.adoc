@@ -1,0 +1,186 @@
+= Prompt specs
+:page-slug: prompt-specs
+:page-section: CORE
+:page-description: The PromptSpec YAML model — fields, request types, placeholders, and extensions.
+:page-prev-label: Lifecycle states
+:page-prev-href: lifecycle.html
+:page-next-label: CLI
+:page-next-href: cli.html
+
+A `PromptSpec` is the on-disk representation of a single prompt — one
+YAML file persisted in the prompt store. Every prompt the CLI, Studio,
+REST API, and client SDKs work with is one of these specs.
+// source: components/promptlm-domain/src/main/java/dev/promptlm/domain/promptspec/PromptSpec.java:42
+
+The Java type is `dev.promptlm.domain.promptspec.PromptSpec`. This page
+documents the fields end-users actually author or read; the Builder
+APIs are an implementation detail of the domain module.
+
+== Where they live
+
+Each spec is serialised as YAML on disk under the active repository's
+working tree. The `path` field of the spec captures the relative
+filesystem path within the repo, e.g. `prompts/support/welcome.yaml`.
+// source: PromptSpec.java:153-156
+
+== Fields
+
+[cols="1,1,3"]
+|===
+| Field | Type | Purpose
+
+| `specVersion`    | string                                          | Format version of the spec schema. Stamped by the writer.
+| `uuid`           | UUID                                            | Stable identity of the prompt, independent of name or group.
+| `id`             | string (required)                               | Human-facing identifier. Example: `support_welcome`.
+| `name`           | string (required)                               | Prompt name. Pattern: `^[a-zA-Z0-9\-_]+$` — alphanumerics, dash, underscore only.
+| `group`          | string (required)                               | Logical grouping of related prompts. Same pattern as `name`. Defaults to `default` when not set.
+| `version`        | string                                          | Semantic version of the prompt, e.g. `1.0.0`.
+| `revision`       | integer                                         | Revision counter inside a draft. Defaults to `0` when null.
+| `description`    | string                                          | Human-readable description.
+| `authors`        | list&lt;string&gt;                              | Author identifiers.
+| `purpose`        | string                                          | Business intent of the prompt.
+| `repositoryUrl`  | string                                          | Source repository URL for this prompt.
+| `status`         | enum `ACTIVE` &#124; `RETIRED`                  | Publication status. Defaults to `ACTIVE`.
+| `createdAt`      | timestamp                                       | When the spec was first persisted.
+| `updatedAt`      | timestamp                                       | Last write timestamp.
+| `retiredAt`      | timestamp                                       | When the spec was retired (`null` if `ACTIVE`).
+| `retiredReason`  | string                                          | Optional explanation for retirement.
+| `request`        | xref:prompt-specs.html#_request_types[Request]  | LLM invocation payload — chat, image, or audio.
+| `placeholders`   | xref:prompt-specs.html#_placeholders[Placeholders] | Placeholder metadata and default values.
+| `response`       | Response                                        | Most recent captured response from execution.
+| `extensions`     | map&lt;string, json&gt;                         | Custom payloads keyed by `x-*`. See below.
+| `path`           | string                                          | Filesystem path of the spec within the repo.
+| `executions`     | list&lt;Execution&gt;                           | Recent executions of the prompt.
+| `semanticHash`   | string                                          | SHA-256 over the semantic prompt fields — stable across non-meaningful edits.
+|===
+// source: PromptSpec.java:47-163,484-492
+
+[NOTE]
+====
+`status` defaults to `ACTIVE` when omitted — you don't need to set it
+on every spec. To retire a prompt, set `status: RETIRED` along with
+`retiredAt` and (optionally) `retiredReason`.
+// source: PromptSpec.java:280, isRetired() at PromptSpec.java:662-666
+====
+
+== Request types
+
+The `request` field is polymorphic — Jackson picks a concrete type from
+the `type` discriminator inside the YAML.
+// source: components/promptlm-domain/src/main/java/dev/promptlm/domain/promptspec/Request.java:26-30
+
+[cols="1,2"]
+|===
+| `type` | Concrete class
+
+| `chat/completion`     | `ChatCompletionRequest`
+| `images/generations`  | `ImagesGenerationsRequest`
+| `audio/speech`        | `AudioSpeechRequest`
+|===
+// source: ChatCompletionRequest.java:30,32; ImagesGenerationsRequest.java:29; AudioSpeechRequest.java:29
+
+When the YAML is written using Jackson's `!<>` tag syntax, the type
+appears as a YAML tag on the `request:` node — for example
+`request: !<chat/completion>`. Both forms round-trip through the
+deserializer.
+
+== Placeholders
+
+`placeholders` declares the template variables a prompt expects.
+
+[cols="1,3"]
+|===
+| Field | Purpose
+
+| `startPattern` | Opening delimiter for placeholders in the prompt body (e.g. `{`).
+| `endPattern`   | Closing delimiter (e.g. `}`).
+| `list`         | Ordered list of `{ name, value }` entries — `value` is the default.
+|===
+// source: PromptSpec.java:1030-1095,1146-1219
+
+`getDefaults()` returns the placeholder name → default map, and rejects
+duplicate names with `IllegalStateException("Duplicate placeholder
+name: …")`. Keep each placeholder unique per spec.
+// source: PromptSpec.java:1041-1064
+
+== Extensions (`x-*`)
+
+The `extensions` map carries arbitrary JSON payloads keyed by names
+that must start with `x-`. This is how evaluation specs, evaluation
+results, and release metadata are attached to a prompt without
+expanding the core schema.
+// source: PromptSpec.java:148-151,683-685
+
+[IMPORTANT]
+====
+Extension keys *must* start with `x-`. Any other key passed in is
+rejected with `IllegalArgumentException("Extension keys must start
+with 'x-': <key>")`.
+// source: PromptSpec.java:668-685
+====
+
+Two extension keys are managed by the core today:
+
+* `x-evaluation` — evaluation spec and results, see `EvaluationExtensions`.
+* `x-release` — release metadata attached when a prompt is released,
+  see `ReleaseExtensions`.
+// source: PromptSpec.java:429-442,562-575
+
+Legacy specs with top-level `evaluationSpec` / `evaluationResults`
+fields are migrated into `x-evaluation` at deserialisation time, so
+older files still load — but newly written specs use the extension
+form.
+// source: PromptSpec.java:687-713
+
+== Example
+
+A minimal chat-completion spec as it appears on disk:
+
+[source,yaml]
+----
+specVersion: null
+uuid: 8d5b6a30-9b3e-4f4c-9b8b-1f3d2a1e5c4f
+id: support_welcome
+name: support_welcome
+group: support
+version: 1.0
+revision: 1
+description: Sample Chat
+authors:
+- fabapp2
+purpose: Test
+repositoryUrl: some-store
+status: ACTIVE
+request: !<chat/completion>
+  vendor: OpenAI
+  model: gpt-3.5-turbo
+  url: https://openai.url
+  messages:
+  - content: You are a happy assistant.
+    role: system
+  - content: How are you?
+    role: user
+placeholders: null
+response: !<chat/completion>
+  content: |
+    I'm happy.
+extensions:
+  x-evaluation:
+    spec:
+      evaluations: []
+    results:
+      evaluations: []
+      status: NOT_CONFIGURED
+path: support/support_welcome.yaml
+----
+// source: components/promptlm-domain/src/test/java/dev/promptlm/domain/promptspec/ChatRequestPromptDeSerializationTests.java:42-83
+
+== Equality and the semantic hash
+
+Two specs compare equal when their `name`, `group`, `version`, and
+`revision` match — that's the identity tuple at the persistence layer.
+For change detection across edits, use `semanticHash`: a SHA-256
+fingerprint of the semantic fields. `hasSemanticChangesComparedTo()`
+returns true when two specs differ in any of those fields, regardless
+of whether timestamps or hashes were rewritten.
+// source: PromptSpec.java:471-481,617-635

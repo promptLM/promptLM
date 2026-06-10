@@ -25,7 +25,7 @@ groups:
   - heading: CORE
     items:
       - { label: "Lifecycle states",   slug: "lifecycle" }
-      - { label: "Prompt specs" }
+      - { label: "Prompt specs",       slug: "prompt-specs" }
       - { label: "Releases" }
       - { label: "Evaluations" }
 
