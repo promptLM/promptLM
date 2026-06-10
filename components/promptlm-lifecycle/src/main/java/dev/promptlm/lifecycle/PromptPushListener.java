@@ -17,6 +17,7 @@
 package dev.promptlm.lifecycle;
 
 import dev.promptlm.domain.events.PromptExecutedEvent;
+import dev.promptlm.domain.events.PromptPushFailedEvent;
 import dev.promptlm.domain.events.PromptPushedEvent;
 import dev.promptlm.domain.promptspec.PromptSpec;
 import dev.promptlm.lifecycle.application.PromptStorePort;
@@ -61,9 +62,11 @@ class PromptPushListener {
         } catch (RuntimeException ex) {
             // The push failure leaves the local commit intact — the user can retry from the
             // UI. Swallowing the exception keeps this async listener from poisoning the
-            // event-publication transaction.
+            // event-publication transaction. Issue #361: emit a domain event so the SSE
+            // bridge can surface a `push-failed` status to the editor.
             log.warn("Failed to amend+push prompt {} after execution; local commit preserved",
                     executed.getId(), ex);
+            eventPublisher.publishEvent(PromptPushFailedEvent.from(executed, ex));
         }
     }
 }
