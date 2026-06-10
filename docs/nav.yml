@@ -9,9 +9,10 @@
 # non-link greyed text. Tracking issue: #205.
 #
 # Items removed from the original design-mock structure (no backing
-# code in the repo): Test suites, Fixtures, Mocking models, MCP
-# record & replay, Vitest / Jest, OpenTelemetry, OpenAI-compat
-# (as an exposed endpoint), Adapter API.
+# code in the repo, or out of scope for 0.1.0): Test suites, Fixtures,
+# Mocking models, MCP record & replay, Vitest / Jest, OpenTelemetry,
+# OpenAI-compat (as an exposed endpoint), Adapter API, Evaluations,
+# JUnit (Gitea + Artifactory) test support.
 
 groups:
   - heading: GET STARTED
@@ -27,7 +28,6 @@ groups:
       - { label: "Lifecycle states",   slug: "lifecycle" }
       - { label: "Prompt specs",       slug: "prompt-specs" }
       - { label: "Releases" }
-      - { label: "Evaluations" }
 
   - heading: CLIENTS
     items:
@@ -39,7 +39,6 @@ groups:
   - heading: INTEGRATIONS
     items:
       - { label: "LLM providers" }
-      - { label: "JUnit (Gitea + Artifactory)" }
 
   - heading: REFERENCE
     items:
