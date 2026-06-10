@@ -374,7 +374,9 @@ export const MessagesEditor: React.FC<MessagesEditorProps> = ({
                   onClick={(event) => emitSelection(i, event.currentTarget)}
                   onKeyUp={(event) => emitSelection(i, event.currentTarget)}
                   onFocus={(event) => emitSelection(i, event.currentTarget)}
-                  onBlur={() => onContentSelectionChange?.(null)}
+                  // Keep the last caret selection across blur so the rail Insert button
+                  // (mouse or keyboard) can read it. The insert handler validates the
+                  // message index, so a stale-but-bounded ref is harmless. See #228 / #217.
                 />
                 {e.content ? (
                   <FormMono size={10} color="oklch(0.50 0.15 25)">
