@@ -123,7 +123,12 @@ jobs:
           mode: create
           github_token: ${{ secrets.RUNNER_PAT }}
           hcloud_token: ${{ secrets.HCLOUD_TOKEN }}
-          server_type: cx33
+          # cx33 hit a Hetzner 412 "resource limitation" on the first trial
+          # (run 27355655316, second job). Falling back to cx42 (8 vCPU / 16 GB)
+          # to unblock the trial. Once the platform is validated end-to-end,
+          # this should go back to cx33 (or the default in hetzner-runner.yml)
+          # — cx42 is ~2× the hourly price.
+          server_type: cx42
           location: fsn1
           image: ${{ vars.HETZNER_RUNNER_SNAPSHOT_ID || 'ubuntu-24.04' }}
           # Fallback baseline install if the snapshot var isn't set yet.
