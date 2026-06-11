@@ -160,6 +160,15 @@ class DefaultPromptLifecycleService implements PromptLifecycleService {
 
     @Override
     public PromptSpec createDefaultPromptSpec() {
+        // Issue #309 — the New-prompt editor must open blank. Previously this method
+        // returned a demo "support-prompt" seed (name/group/description/messages/
+        // placeholders all pre-filled), which both (a) pre-populated the form in the
+        // web UI and (b) made it trivially easy for users to save the demo content
+        // into their own repo (e.g. as prompts/support/support-prompt/promptlm.yml)
+        // by accepting the defaults. We now return an empty draft with only the
+        // structural defaults (placeholder delimiters, sane parameter defaults,
+        // a `chat/completion` request shape with empty system/user message slots)
+        // so the editor presents truly blank fields.
         Map<String, Object> defaultParams = new HashMap<>();
         defaultParams.put("temperature", 0.7);
         defaultParams.put("maxTokens", 1024);
@@ -171,30 +180,30 @@ class DefaultPromptLifecycleService implements PromptLifecycleService {
         PromptSpec.Placeholders placeholders = new PromptSpec.Placeholders();
         placeholders.setStartPattern("{{");
         placeholders.setEndPattern("}}");
-        placeholders.setList(List.of(new PromptSpec.Placeholder("customer_name", "Taylor")));
+        placeholders.setList(List.of());
 
         Request request = ChatCompletionRequest.builder()
-                .withVendor("openai")
-                .withModel("gpt-4o")
+                .withVendor("")
+                .withModel("")
                 .withMessages(List.of(
                         ChatCompletionRequest.Message.builder()
                                 .withRole("system")
-                                .withContent("You are a helpful assistant.")
+                                .withContent("")
                                 .build(),
                         ChatCompletionRequest.Message.builder()
                                 .withRole("user")
-                                .withContent("Help the customer.")
+                                .withContent("")
                                 .build()
                 ))
                 .withParameters(defaultParams)
                 .build();
 
         return PromptSpec.builder()
-                .withGroup("support")
-                .withName("support-prompt")
+                .withGroup("")
+                .withName("")
                 .withVersion("1.0.0-SNAPSHOT")
                 .withRevision(1)
-                .withDescription("Assist support agents")
+                .withDescription("")
                 .withRequest(request)
                 .withPlaceholders(placeholders)
                 .build();

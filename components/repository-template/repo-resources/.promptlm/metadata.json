@@ -6,16 +6,7 @@
     "created": "{{CREATED_AT}}",
     "updated": "{{CREATED_AT}}"
   },
-  "prompts": [
-    {
-      "id": "hello",
-      "name": "hello",
-      "group": "examples",
-      "version": "1.0.0",
-      "file": "prompts/examples/hello.md",
-      "status": "active"
-    }
-  ],
+  "prompts": [],
   "metadata": {
     "format_version": "1.0",
     "generator": "promptLM",
