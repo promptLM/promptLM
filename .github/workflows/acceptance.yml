@@ -99,11 +99,61 @@ jobs:
           echo "reason=$reason" >> "$GITHUB_OUTPUT"
           echo "::notice title=Acceptance gate::run=$run ($reason)"
 
-  acceptance:
-    name: Acceptance Tests
+  # Provision a Hetzner Cloud VM and register it as a self-hosted runner.
+  # Three-job pattern (provision → acceptance → teardown) lifted from
+  # promptLM/.github docs/hetzner-runners.md. We call Cyclenerd's action
+  # directly rather than promptLM/.github's hetzner-runner.yml reusable
+  # workflow because the existing acceptance job uses setup-java caching,
+  # a local composite action (install-platform-parent), and an upload-
+  # artifact step on failure — none of which fit the single-shell-command
+  # interface of hetzner-runner.yml.
+  provision-runner:
+    name: Provision Hetzner runner
     needs: decide
     if: needs.decide.outputs.run == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      label: ${{ steps.runner.outputs.label }}
+      server_id: ${{ steps.runner.outputs.server_id }}
+    steps:
+      - id: runner
+        uses: Cyclenerd/hcloud-github-runner@2904b0bc60c7b3b19331bd4d48dc87c58ad2d04f  # v1 (v1.4.0)
+        with:
+          mode: create
+          github_token: ${{ secrets.RUNNER_PAT }}
+          hcloud_token: ${{ secrets.HCLOUD_TOKEN }}
+          # cx33 (AMD EPYC, current gen) — what the snapshot bake uses.
+          # An earlier 412 ("Resource limitation detected", run 27355655316)
+          # appears to have been transient stock-out, not a persistent issue:
+          # the bake successfully uses cx33/fsn1 daily. A subsequent try with
+          # cx42 (run 27360766749) hit 422 because the cx42 name still
+          # resolves to the deprecated Intel SKU (type 106) — promptLM/.github's
+          # docs/hetzner-runners.md whitelist needs an update.
+          server_type: cx33
+          location: fsn1
+          image: ${{ vars.HETZNER_RUNNER_SNAPSHOT_ID || 'ubuntu-24.04' }}
+          # Fallback baseline install if the snapshot var isn't set yet.
+          # The snapshot bake removes this branch in steady state.
+          pre_runner_script: |
+            if ! command -v docker >/dev/null 2>&1; then
+              curl -fsSL https://get.docker.com | sh
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update
+              apt-get install -y \
+                openjdk-17-jdk-headless openjdk-21-jdk-headless \
+                maven git curl wget jq unzip make ca-certificates
+              curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+              apt-get install -y nodejs
+              npm install -g pnpm yarn
+            fi
+
+  acceptance:
+    name: Acceptance Tests
+    needs: [decide, provision-runner]
+    if: needs.decide.outputs.run == 'true'
+    runs-on: ${{ needs.provision-runner.outputs.label }}
+    timeout-minutes: 60
     permissions:
       contents: read
       packages: read
@@ -150,3 +200,65 @@ jobs:
             acceptance-tests/target/screenshots/**
             acceptance-tests/target/traces/**
           retention-days: 1
+
+  teardown-runner:
+    name: Teardown Hetzner runner
+    needs: [provision-runner, acceptance]
+    # Tear down whether acceptance passed, failed, or was cancelled — but
+    # only if provision-runner produced a server_id. (If provision-runner
+    # itself was skipped because `decide` said no, there's nothing to tear
+    # down.)
+    if: always() && needs.provision-runner.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # continue-on-error: Cyclenerd's delete mode does two things — delete
+      # the Hetzner VM (cost-critical) and deregister the GitHub Actions
+      # runner record (cosmetic). The VM-delete part is reliable; the
+      # runner-deregister part fails when the runner has already
+      # auto-removed itself on clean exit (ephemeral-runner behavior) —
+      # the action then reports "Failed to get ID of the GitHub Actions
+      # Runner!" and exits 1, marking the whole job red despite the VM
+      # being gone.
+      #
+      # The cost-critical work is the VM delete. Offline runner records
+      # are auto-cleaned by GitHub after ~14 days, and the orphan-sweep
+      # workflow in promptLM/.github catches any VMs that survive anyway.
+      # So failing the workflow on this is noise — swallow it.
+      - uses: Cyclenerd/hcloud-github-runner@2904b0bc60c7b3b19331bd4d48dc87c58ad2d04f  # v1 (v1.4.0)
+        continue-on-error: true
+        with:
+          mode: delete
+          github_token: ${{ secrets.RUNNER_PAT }}
+          hcloud_token: ${{ secrets.HCLOUD_TOKEN }}
+          server_id: ${{ needs.provision-runner.outputs.server_id }}
+
+      # Belt-and-braces VM cleanup: if Cyclenerd above somehow exited
+      # before the hcloud delete call (vs. failing afterwards), this
+      # catches it. The orphan-sweep workflow in promptLM/.github is a
+      # third backstop after both of these.
+      - name: Force-delete VM if still present
+        if: always()
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+          SERVER_ID: ${{ needs.provision-runner.outputs.server_id }}
+        run: |
+          set -euo pipefail
+          status=$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer ${HCLOUD_TOKEN}" \
+            "https://api.hetzner.cloud/v1/servers/${SERVER_ID}")
+          case "$status" in
+            200)
+              echo "Server ${SERVER_ID} still present — deleting"
+              curl -sS -X DELETE \
+                -H "Authorization: Bearer ${HCLOUD_TOKEN}" \
+                "https://api.hetzner.cloud/v1/servers/${SERVER_ID}" \
+                | jq .
+              ;;
+            404)
+              echo "Server ${SERVER_ID} already deleted — nothing to do"
+              ;;
+            *)
+              echo "::warning::Unexpected status ${status} probing Hetzner API for server ${SERVER_ID}; orphan-sweep will catch it within 6h if it's still alive."
+              ;;
+          esac
