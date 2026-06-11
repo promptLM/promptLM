@@ -2,8 +2,10 @@
 :page-slug: cli
 :page-section: REFERENCE
 :page-description: All promptlm-cli commands and flags, verified against the source.
-:page-prev-label: Prompt specs
-:page-prev-href: prompt-specs.html
+:page-prev-label: LLM providers
+:page-prev-href: llm-providers.html
+:page-next-label: REST API
+:page-next-href: rest-api.html
 
 Every command, flag, and default below is taken directly from the
 picocli `@Command` / `@Option` annotations in the CLI module under

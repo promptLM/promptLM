@@ -1,0 +1,66 @@
+= macOS menubar
+:page-slug: macos-menubar
+:page-section: CLIENTS
+:page-description: Native macOS menubar app that inserts promptLM prompts at the cursor via a global hotkey.
+:page-prev-label: Python SDK
+:page-prev-href: python-sdk.html
+:page-next-label: LLM providers
+:page-next-href: llm-providers.html
+
+The macOS menubar client is a native Swift app maintained in
+https://github.com/promptLM/promptlm-macos[promptLM/promptlm-macos]. It
+lives in the menu bar, opens a Spotlight-style picker via a global
+shortcut, and inserts rendered prompts at the cursor.
+// source: promptLM/promptlm-macos README.md
+
+[NOTE]
+====
+The macOS client is in early scaffold for the 0.1.0 release. The menu
+bar icon is in place; picker, hotkey, repository loading, render and
+paste are tracked in the repo's issues.
+// source: promptLM/promptlm-macos README.md
+====
+
+== Requirements
+
+* macOS 13 (Ventura) or later
+* Xcode 15+ / Swift 5.9+ for development
+// source: promptLM/promptlm-macos README.md — "Requirements"
+
+== Install
+
+[source,bash]
+----
+git clone https://github.com/promptLM/promptlm-macos.git
+cd promptlm-macos
+./install.sh             # build, wrap into .app, install to ~/Applications
+./install.sh --launch    # also start the app
+./install.sh --system    # install to /Applications (uses sudo)
+./install.sh --uninstall # remove the installed bundle
+----
+// source: promptLM/promptlm-macos README.md — install.sh options
+
+After install, a chat-bubble icon appears in the menu bar. The default
+global hotkey is *⌃⌥⌘P*.
+// source: promptLM/promptlm-macos README.md
+
+== Settings
+
+Open via the menu bar icon → *Settings…* (⌘,):
+
+* *Prompt repository* — folder the app scans for `*.yaml`, `*.yml`,
+  `*.json` prompt specs. Defaults to `~/.promptlm/prompts`.
+* *Global hotkey* — click *Record*, press your combo (must include ⌘,
+  ⌥, or ⌃). ⎋ cancels.
+* *Launch at login* — uses `SMAppService` (macOS 13+).
+// source: promptLM/promptlm-macos README.md — "Settings"
+
+== Selecting a prompt
+
+* Prompts with *no placeholders* — text is pasted at the cursor.
+* Prompts *with placeholders* — a form opens with a field per
+  placeholder (defaults pre-filled, required fields marked `*`); on
+  submit the rendered text is pasted at the cursor.
+
+The original clipboard contents are restored ~400 ms after the paste.
+// source: promptLM/promptlm-macos README.md — "Seeding prompts"

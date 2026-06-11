@@ -41,7 +41,7 @@ SDKs into your own workflow.
 
 * *Client SDKs* — Java, TypeScript, and Python libraries that load
   released prompt JSON bundles in your application. Maintained in the
-  separate https://github.com/promptLM/promptlm-client-sdk[promptLM/promptlm-client-sdk]
+  separate https://github.com/promptLM/promptlm-clients[promptLM/promptlm-clients]
   repository.
   // source: README.adoc:168-192
 

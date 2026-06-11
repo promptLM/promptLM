@@ -1,0 +1,135 @@
+= Releases
+:page-slug: releases
+:page-section: CORE
+:page-description: How prompt releases work — direct vs two-phase promotion, release metadata, and the bundle pipeline.
+:page-prev-label: Prompt specs
+:page-prev-href: prompt-specs.html
+:page-next-label: Java SDK
+:page-next-href: java-sdk.html
+
+A *release* freezes the current content of a `PromptSpec` at a named
+version. promptLM supports two distinct release pipelines, and they
+operate at different layers:
+
+* *prompt-level releases* — handled by the `prompt release` CLI command
+  (and the `/api/prompts/.../release` REST endpoints). Stamp the spec
+  with `x-release` metadata and produce a versioned record. Covered on
+  this page.
+* *bundle-release* — a separate CI workflow that packages the entire
+  prompt store as a Maven jar and publishes it to a registry. See the
+  in-repo reference at [`docs/release-classes.md`](https://github.com/promptLM/promptlm-app/blob/main/docs/release-classes.md).
+
+== Promotion modes
+
+The CLI and API select between two promotion modes via the
+`promptlm.release.promotion.mode` property.
+// source: apps/promptlm-cli/src/main/resources/application.yml:9-11
+
+[cols="1,3"]
+|===
+| Mode | Behaviour
+
+| `direct` (default)
+| `prompt release` performs the release in a single step — the spec is
+  released and the `x-release` extension is updated in one operation.
+
+| `pr_two_phase`
+| `prompt release` requests a release and opens a release PR. The
+  `prompt release complete` command finishes the release after the PR
+  is merged. The completion command is only available in this mode.
+|===
+// source: components/promptlm-domain/src/main/java/dev/promptlm/domain/promptspec/ReleaseMetadata.java:47-48; PromptCommands.java:225-281
+
+Set via env var or `application.yml`:
+
+[source,bash]
+----
+export PROMPTLM_RELEASE_PROMOTION_MODE=pr_two_phase
+----
+// source: apps/promptlm-cli/src/main/resources/application.yml:11
+
+== CLI
+
+[source,bash]
+----
+promptlm-cli prompt release --id <prompt-id>
+----
+// source: apps/promptlm-cli/src/main/java/dev/promptlm/cli/PromptCommands.java:149-159
+
+In `direct` mode this returns the released version. In `pr_two_phase`
+mode it returns a string of the form `requested <version> pr#<number>`,
+and the release is not yet final.
+// source: PromptCommands.java:206-225
+
+After the release PR merges (two-phase only):
+
+[source,bash]
+----
+promptlm-cli prompt release complete --id <prompt-id> --pr <pr-number>
+----
+// source: PromptCommands.java:161-172
+
+The `prompt release complete` command is hidden by an availability
+provider — invoking it under `direct` mode fails with the message
+*"prompt release complete is only available when
+promptlm.release.promotion.mode=pr_two_phase"*.
+// source: PromptCommands.java:249-281
+
+== REST endpoints
+
+Both promotion paths are also exposed over HTTP for Studio and
+integrations:
+// source: components/promptlm-web-api/src/main/java/dev/promptlm/web/PromptSpecController.java:472-558
+
+[cols="1,3"]
+|===
+| Method + path | Purpose
+
+| `POST /api/prompts/{promptSpecId}/release`           | Release by id.
+| `POST /api/prompts/{group}/{name}/release`           | Release by group + name.
+| `POST /api/prompts/{promptSpecId}/release/complete`  | Complete a two-phase release (id).
+| `POST /api/prompts/{group}/{name}/release/complete`  | Complete a two-phase release (group + name).
+|===
+
+== Release metadata (`x-release`)
+
+A successful release writes a `ReleaseMetadata` payload into the
+spec's `x-release` extension. The shape:
+// source: components/promptlm-domain/src/main/java/dev/promptlm/domain/promptspec/ReleaseMetadata.java:34-48
+
+[cols="1,3"]
+|===
+| Field | Meaning
+
+| `state`                | `requested` or `released`.
+| `mode`                 | `direct` or `pr_two_phase` — the mode at release time.
+| `version`              | The version the spec was released at.
+| `tag`                  | Git tag that anchors the release (if any).
+| `branch`               | Branch the release was opened on (two-phase).
+| `prNumber`             | Release PR number (two-phase).
+| `prUrl`                | Release PR URL (two-phase).
+| `existing`             | `true` if the release already existed at request time.
+| `releasedSemanticHash` | The spec's `semanticHash` at the moment it reached `released`. Used by the UI to detect drift since release. Older records may carry `null` (treated as "unknown baseline").
+|===
+
+[NOTE]
+====
+`state` is constructed with the constants `ReleaseMetadata.STATE_REQUESTED`
+and `STATE_RELEASED`; `mode` uses `MODE_DIRECT` and `MODE_PR_TWO_PHASE`.
+Both are required (the record constructor rejects blank values).
+// source: ReleaseMetadata.java:45-57
+====
+
+== Bundle-release vs prompt-release
+
+A *prompt release* updates a single spec on disk. A *bundle-release* is
+a separate CI workflow — `bundle-release.yml` — that packages the entire
+prompts directory of a store repository as a Maven jar and publishes it
+to a registry (GitHub Packages by default, Artifactory / Nexus via
+`BUNDLE_RELEASE_MAVEN_URL`). Bundle-release runs in the user's prompt
+store repo, not in promptlm-app, and is triggered by GitHub's
+`release.created` event or `workflow_dispatch`.
+
+For the bundle-release reference (triggers, configuration knobs,
+acceptance test), see [`docs/release-classes.md`](https://github.com/promptLM/promptlm-app/blob/main/docs/release-classes.md)
+in the repo.

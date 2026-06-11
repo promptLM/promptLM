@@ -1,0 +1,106 @@
+= LLM providers
+:page-slug: llm-providers
+:page-section: INTEGRATIONS
+:page-description: How promptLM reaches LLM providers — Spring AI by default, with an optional LiteLLM gateway for everything else.
+:page-prev-label: macOS menubar
+:page-prev-href: macos-menubar.html
+:page-next-label: CLI
+:page-next-href: cli.html
+
+promptLM routes prompt execution through https://docs.spring.io/spring-ai/[Spring AI]
+by default. Two providers ship with the CLI distribution: OpenAI and
+Anthropic. For everything else, enable the LiteLLM gateway module,
+which fronts a long tail of providers behind an OpenAI-compatible API.
+
+== Default providers (Spring AI)
+
+The CLI's `application.yml` wires Spring AI's OpenAI and Anthropic
+clients to the standard environment variables:
+
+[cols="2,3"]
+|===
+| Spring property | Reads from
+
+| `spring.ai.openai.api-key`    | `OPENAI_API_KEY`
+| `spring.ai.anthropic.api-key` | `ANTHROPIC_API_KEY`
+|===
+// source: apps/promptlm-cli/src/main/resources/application.yml:21-27
+
+Routing between OpenAI and Anthropic is driven by the `vendor` and
+`model` fields on the spec's `request` — see
+xref:prompt-specs.html#_request_types[Request types].
+
+== LiteLLM gateway (opt-in)
+
+The `promptlm-execution-litellm` module fronts LiteLLM as a
+self-managed Docker container and routes prompts through it as an
+OpenAI-compatible proxy. Disabled by default.
+// source: components/promptlm-execution-litellm/src/main/resources/application.yml — enabled: false
+
+Enable with:
+
+[source,bash]
+----
+export PROMPTLM_GATEWAY_LITELLM_ENABLED=true
+----
+
+Or in `application.yml`:
+
+[source,yaml]
+----
+promptlm:
+  gateway:
+    litellm:
+      enabled: true
+----
+// source: components/promptlm-execution-litellm/src/main/java/dev/promptlm/execution/litellm/LiteLlmGatewayProperties.java:26-34
+
+=== Properties
+
+All keys are nested under `promptlm.gateway.litellm`.
+// source: LiteLlmGatewayProperties.java:26
+
+[cols="2,1,3"]
+|===
+| Property | Default | Purpose
+
+| `enabled`              | `false`                       | Master switch for the LiteLLM gateway.
+| `version`              | `v1.82.3.dev.6`               | LiteLLM Docker image tag. Used to compose `ghcr.io/berriai/litellm:<version>` unless `docker.image` is set.
+| `base-url`             | `http://localhost:4000`       | Base URL where LiteLLM is exposed.
+| `vendor`               | `litellm`                     | Prompt `vendor` identifier this gateway handles.
+| `model-aliases`        | empty map                     | Mapping from promptLM model id to LiteLLM route.
+| `environment`          | empty map                     | Extra environment variables passed to the LiteLLM container.
+|===
+// source: LiteLlmGatewayProperties.java:34-117
+
+=== Docker container management
+
+Nested under `promptlm.gateway.litellm.docker`:
+
+[cols="2,1,3"]
+|===
+| Property | Default | Purpose
+
+| `manage`            | `true`                       | Whether promptLM manages the container's lifecycle.
+| `image`             | (derived from `version`)     | Explicit image reference. Must use an immutable tag or digest — no `:latest`.
+| `container-name`    | `promptlm-litellm`           | Container name when promptLM spawns LiteLLM.
+| `port`              | `4000`                       | Host port to expose.
+| `network`           | (none)                       | Optional Docker network to attach to.
+| `readiness-timeout` | `30s`                        | How long to wait for LiteLLM readiness.
+| `readiness-path`    | `/health`                    | Path queried for readiness checks.
+|===
+// source: LiteLlmGatewayProperties.java:143-235
+
+=== Model discovery
+
+Nested under `promptlm.gateway.litellm.discovery`:
+
+[cols="2,1,3"]
+|===
+| Property | Default | Purpose
+
+| `enabled`     | `false`     | Pull the model list from LiteLLM at runtime.
+| `cache-ttl`  | `5m`        | How long the discovered list is cached.
+| `models-path` | `/v1/models` | Path queried to list available models.
+|===
+// source: LiteLlmGatewayProperties.java:237-277
