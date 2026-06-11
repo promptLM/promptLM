@@ -60,7 +60,10 @@ class ZipFileRepositoryTemplateExtractorReleaseToggleTest {
         assertThat(tempDir.resolve("promptlm.yml")).exists();
         assertThat(tempDir.resolve(".promptlm/metadata.json")).exists();
         assertThat(tempDir.resolve(".promptlm/prompts-meta.json")).exists();
-        assertThat(tempDir.resolve("prompts/examples/hello.md")).exists();
+        // Issue #309 — the live template no longer seeds prompts/examples/hello.md;
+        // the only prompts/ entry now is the .gitignore placeholder that keeps the
+        // empty directory in the zip. We assert on that to stay aligned with reality.
+        assertThat(tempDir.resolve("prompts/.gitignore")).exists();
         assertThat(tempDir.resolve("README.md")).exists();
 
         // Mode 2 release infrastructure must be absent.
@@ -143,7 +146,7 @@ class ZipFileRepositoryTemplateExtractorReleaseToggleTest {
             builder.write(".promptlm/metadata.json", "{}");
             builder.write(".promptlm/prompts-meta.json", "{}");
             builder.write(".promptlm/artifacts.toml", "[project]");
-            builder.write("prompts/examples/hello.md", "hello");
+            builder.write("prompts/.gitignore", "");
             builder.write(".github/workflows/build-artifacts.yml", "name: build");
             builder.write(".github/workflows/bundle-release.yml", "name: bundle-release");
             builder.write("tools/release/build-artifacts", "#!/bin/sh");

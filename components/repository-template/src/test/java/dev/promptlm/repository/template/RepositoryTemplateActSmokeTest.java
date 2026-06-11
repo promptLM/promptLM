@@ -60,6 +60,13 @@ class RepositoryTemplateActSmokeTest {
             Path repositoryDir = tempDir.resolve("template-repo").toAbsolutePath();
             Files.createDirectories(repositoryDir);
             extractRepositoryTemplate(repositoryDir);
+            // Issue #309 — the repository template now ships with an empty prompts/
+            // directory (only `.gitignore` survives the zip round-trip). The
+            // validate-prompts.sh job is designed to fail on empty prompts/ so
+            // releases cannot ship a content-free bundle. Seed a synthetic prompt
+            // here so the smoke test still exercises the workflow without
+            // re-introducing demo content into the shipped template.
+            seedSmokePrompt(repositoryDir);
 
             initializeGitRepository(repositoryDir, tempDir);
             Path bareRemoteRepository = createBareRemote(repositoryDir, tempDir);
@@ -273,6 +280,33 @@ class RepositoryTemplateActSmokeTest {
                 }
             }
         }
+    }
+
+    /**
+     * Drop a minimal, valid {@code promptlm.yml} prompt manifest into the
+     * extracted template so {@code validate-prompts.sh} has something to validate.
+     * Mirrors the smallest shape the script will accept (id/name/group/version/
+     * request top-level fields). Issue #309 removed the demo {@code hello.md}
+     * seed from the shipped template; this fixture is test-only and must not
+     * leak into anything the user ever sees.
+     */
+    private static void seedSmokePrompt(Path repositoryDir) throws IOException {
+        Path promptFile = repositoryDir.resolve("prompts").resolve("smoke").resolve("smoke-prompt").resolve("promptlm.yml");
+        Files.createDirectories(promptFile.getParent());
+        String content = """
+                id: smoke/smoke-prompt
+                name: smoke-prompt
+                group: smoke
+                version: 1.0.0-SNAPSHOT
+                request:
+                  type: chat/completion
+                  vendor: openai
+                  model: gpt-4o-mini
+                  messages:
+                    - role: user
+                      content: smoke
+                """;
+        Files.writeString(promptFile, content, StandardCharsets.UTF_8);
     }
 
     private static void initializeGitRepository(Path repositoryDir, Path tempDir) throws Exception {

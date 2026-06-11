@@ -44,6 +44,9 @@ class RepositoryTemplateZipContentsTest {
                 }
             }
 
+            // Issue #309 — a freshly provisioned repo must start blank: no demo
+            // prompt files under prompts/. Only the `.gitignore` placeholder is
+            // shipped so the empty directory survives the zip round-trip.
             Set<String> expectedEntries = new TreeSet<>(List.of(
                     ".github/workflows/build-artifacts.yml",
                     ".github/workflows/bundle-release.yml",
@@ -56,7 +59,6 @@ class RepositoryTemplateZipContentsTest {
                     "pom.xml",
                     "promptlm.yml",
                     "prompts/.gitignore",
-                    "prompts/examples/hello.md",
                     "scripts/package-prompts.sh",
                     "scripts/validate-prompts.sh",
                     "tools/release/build-artifacts",
@@ -64,6 +66,14 @@ class RepositoryTemplateZipContentsTest {
             ));
 
             assertEquals(expectedEntries, actualEntries);
+
+            // Defensive guard: nothing under prompts/ may ship as a seeded example.
+            for (String entry : actualEntries) {
+                if (entry.startsWith("prompts/") && !entry.equals("prompts/.gitignore")) {
+                    throw new AssertionError(
+                            "Repository template must not seed example prompts (#309), found: " + entry);
+                }
+            }
         }
     }
 }

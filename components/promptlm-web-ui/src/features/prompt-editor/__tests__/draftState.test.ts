@@ -70,7 +70,72 @@ describe('promptEditorReducer', () => {
   });
 });
 
+describe('createEmptyPromptDraft', () => {
+  // Issue #309 — the New-prompt view must open blank. The empty draft is what
+  // the editor falls back to before the backend template lands and what it
+  // also lands on once the backend returns the blank /api/prompts/template
+  // payload (see DefaultPromptLifecycleService#createDefaultPromptSpec).
+  it('starts with blank name, group, description, messages and placeholders', () => {
+    const state = createEmptyPromptDraft();
+
+    expect(state.draft.name).toBe('');
+    expect(state.draft.group).toBe('');
+    expect(state.draft.description).toBe('');
+    expect(state.draft.request.vendor).toBe('');
+    expect(state.draft.request.model).toBe('');
+    expect(state.draft.request.messages).toHaveLength(2);
+    expect(state.draft.request.messages[0]?.role).toBe('system');
+    expect(state.draft.request.messages[0]?.content).toBe('');
+    expect(state.draft.request.messages[1]?.role).toBe('user');
+    expect(state.draft.request.messages[1]?.content).toBe('');
+    expect(state.draft.placeholders.list).toEqual([]);
+    expect(state.draft.placeholders.startPattern).toBe('{{');
+    expect(state.draft.placeholders.endPattern).toBe('}}');
+    expect(state.evaluationEnabled).toBe(false);
+  });
+});
+
 describe('createPromptDraftFromPrompt', () => {
+  // Issue #309 — the New-prompt editor hydrates from the backend `/template`
+  // payload. That payload is now blank by design, and the hydration must not
+  // re-introduce demo content (name/group/messages/placeholders).
+  it('keeps all fields blank when the backend template is blank', () => {
+    const blankTemplate: PromptSpec = {
+      name: '',
+      group: '',
+      description: '',
+      version: '1.0.0-SNAPSHOT',
+      revision: 1,
+      request: {
+        type: 'chat/completion',
+        vendor: '',
+        model: '',
+        messages: [
+          { role: 'system', content: '' },
+          { role: 'user', content: '' },
+        ],
+      } as PromptSpec['request'],
+      placeholders: {
+        startPattern: '{{',
+        endPattern: '}}',
+        list: [],
+      },
+    } as PromptSpec;
+
+    const state = createPromptDraftFromPrompt(blankTemplate);
+
+    expect(state.draft.name).toBe('');
+    expect(state.draft.group).toBe('');
+    expect(state.draft.description).toBe('');
+    expect(state.draft.request.vendor).toBe('');
+    expect(state.draft.request.model).toBe('');
+    expect(state.draft.request.messages).toHaveLength(2);
+    expect(state.draft.request.messages[0]?.content).toBe('');
+    expect(state.draft.request.messages[1]?.content).toBe('');
+    expect(state.draft.placeholders.list).toEqual([]);
+    expect(state.evaluationEnabled).toBe(false);
+  });
+
   it('hydrates evaluation definitions from prompt extensions', () => {
     const prompt: PromptSpec = {
       id: 'prompt-1',

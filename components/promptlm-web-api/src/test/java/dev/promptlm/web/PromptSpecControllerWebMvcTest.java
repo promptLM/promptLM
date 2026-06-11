@@ -116,29 +116,33 @@ class PromptSpecControllerWebMvcTest {
     private ApplicationEvents applicationEvents;
 
     @Test
-    void getDefaultTemplateReturnsCanonicalDraftSeed() throws Exception {
+    void getDefaultTemplateReturnsBlankDraftSeed() throws Exception {
+        // Issue #309 — the New-prompt editor must open blank. The /template endpoint
+        // hands the UI a draft with structural defaults only (placeholder delimiters,
+        // empty system/user message slots) and no demo strings that would either
+        // pre-fill the form or get saved verbatim into the user's repo.
         PromptSpec.Placeholders placeholders = new PromptSpec.Placeholders();
         placeholders.setStartPattern("{{");
         placeholders.setEndPattern("}}");
-        placeholders.setList(List.of(new PromptSpec.Placeholder("customer_name", "Taylor")));
+        placeholders.setList(List.of());
 
         PromptSpec template = PromptSpec.builder()
-                .withGroup("support")
-                .withName("support-prompt")
+                .withGroup("")
+                .withName("")
                 .withVersion("1.0.0-SNAPSHOT")
                 .withRevision(1)
-                .withDescription("Assist support agents")
+                .withDescription("")
                 .withRequest(ChatCompletionRequest.builder()
-                        .withVendor("openai")
-                        .withModel("gpt-4o")
+                        .withVendor("")
+                        .withModel("")
                         .withMessages(List.of(
                                 ChatCompletionRequest.Message.builder()
                                         .withRole("system")
-                                        .withContent("You are a helpful assistant.")
+                                        .withContent("")
                                         .build(),
                                 ChatCompletionRequest.Message.builder()
                                         .withRole("user")
-                                        .withContent("Help the customer.")
+                                        .withContent("")
                                         .build()))
                         .build())
                 .withPlaceholders(placeholders)
@@ -148,19 +152,18 @@ class PromptSpecControllerWebMvcTest {
         mockMvc.perform(get("/api/prompts/template"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$.name").value("support-prompt"))
-                .andExpect(jsonPath("$.group").value("support"))
-                .andExpect(jsonPath("$.description").value("Assist support agents"))
-                .andExpect(jsonPath("$.request.vendor").value("openai"))
-                .andExpect(jsonPath("$.request.model").value("gpt-4o"))
+                .andExpect(jsonPath("$.name").value(""))
+                .andExpect(jsonPath("$.group").value(""))
+                .andExpect(jsonPath("$.description").value(""))
+                .andExpect(jsonPath("$.request.vendor").value(""))
+                .andExpect(jsonPath("$.request.model").value(""))
                 .andExpect(jsonPath("$.request.messages[0].role").value("system"))
-                .andExpect(jsonPath("$.request.messages[0].content").value("You are a helpful assistant."))
+                .andExpect(jsonPath("$.request.messages[0].content").value(""))
                 .andExpect(jsonPath("$.request.messages[1].role").value("user"))
-                .andExpect(jsonPath("$.request.messages[1].content").value("Help the customer."))
+                .andExpect(jsonPath("$.request.messages[1].content").value(""))
                 .andExpect(jsonPath("$.placeholders.startPattern").value("{{"))
                 .andExpect(jsonPath("$.placeholders.endPattern").value("}}"))
-                .andExpect(jsonPath("$.placeholders.list[0].name").value("customer_name"))
-                .andExpect(jsonPath("$.placeholders.list[0].value").value("Taylor"));
+                .andExpect(jsonPath("$.placeholders.list").isEmpty());
     }
 
     @Test
