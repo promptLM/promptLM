@@ -266,7 +266,7 @@ limitations under the License.
             <id>web-ui-workspace</id>
             <activation>
                 <file>
-                    <exists>${project.basedir}/../../components/promptlm-web-ui/package.json</exists>
+                    <exists>${basedir}/../../components/promptlm-web-ui/package.json</exists>
                 </file>
             </activation>
             <properties>
