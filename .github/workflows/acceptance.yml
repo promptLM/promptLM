@@ -212,9 +212,53 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      # continue-on-error: Cyclenerd's delete mode does two things — delete
+      # the Hetzner VM (cost-critical) and deregister the GitHub Actions
+      # runner record (cosmetic). The VM-delete part is reliable; the
+      # runner-deregister part fails when the runner has already
+      # auto-removed itself on clean exit (ephemeral-runner behavior) —
+      # the action then reports "Failed to get ID of the GitHub Actions
+      # Runner!" and exits 1, marking the whole job red despite the VM
+      # being gone.
+      #
+      # The cost-critical work is the VM delete. Offline runner records
+      # are auto-cleaned by GitHub after ~14 days, and the orphan-sweep
+      # workflow in promptLM/.github catches any VMs that survive anyway.
+      # So failing the workflow on this is noise — swallow it.
       - uses: Cyclenerd/hcloud-github-runner@2904b0bc60c7b3b19331bd4d48dc87c58ad2d04f  # v1 (v1.4.0)
+        continue-on-error: true
         with:
           mode: delete
           github_token: ${{ secrets.RUNNER_PAT }}
           hcloud_token: ${{ secrets.HCLOUD_TOKEN }}
           server_id: ${{ needs.provision-runner.outputs.server_id }}
+
+      # Belt-and-braces VM cleanup: if Cyclenerd above somehow exited
+      # before the hcloud delete call (vs. failing afterwards), this
+      # catches it. The orphan-sweep workflow in promptLM/.github is a
+      # third backstop after both of these.
+      - name: Force-delete VM if still present
+        if: always()
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+          SERVER_ID: ${{ needs.provision-runner.outputs.server_id }}
+        run: |
+          set -euo pipefail
+          status=$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer ${HCLOUD_TOKEN}" \
+            "https://api.hetzner.cloud/v1/servers/${SERVER_ID}")
+          case "$status" in
+            200)
+              echo "Server ${SERVER_ID} still present — deleting"
+              curl -sS -X DELETE \
+                -H "Authorization: Bearer ${HCLOUD_TOKEN}" \
+                "https://api.hetzner.cloud/v1/servers/${SERVER_ID}" \
+                | jq .
+              ;;
+            404)
+              echo "Server ${SERVER_ID} already deleted — nothing to do"
+              ;;
+            *)
+              echo "::warning::Unexpected status ${status} probing Hetzner API for server ${SERVER_ID}; orphan-sweep will catch it within 6h if it's still alive."
+              ;;
+          esac
