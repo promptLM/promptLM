@@ -123,12 +123,14 @@ jobs:
           mode: create
           github_token: ${{ secrets.RUNNER_PAT }}
           hcloud_token: ${{ secrets.HCLOUD_TOKEN }}
-          # cx33 hit a Hetzner 412 "resource limitation" on the first trial
-          # (run 27355655316, second job). Falling back to cx42 (8 vCPU / 16 GB)
-          # to unblock the trial. Once the platform is validated end-to-end,
-          # this should go back to cx33 (or the default in hetzner-runner.yml)
-          # — cx42 is ~2× the hourly price.
-          server_type: cx42
+          # cx33 (AMD EPYC, current gen) — what the snapshot bake uses.
+          # An earlier 412 ("Resource limitation detected", run 27355655316)
+          # appears to have been transient stock-out, not a persistent issue:
+          # the bake successfully uses cx33/fsn1 daily. A subsequent try with
+          # cx42 (run 27360766749) hit 422 because the cx42 name still
+          # resolves to the deprecated Intel SKU (type 106) — promptLM/.github's
+          # docs/hetzner-runners.md whitelist needs an update.
+          server_type: cx33
           location: fsn1
           image: ${{ vars.HETZNER_RUNNER_SNAPSHOT_ID || 'ubuntu-24.04' }}
           # Fallback baseline install if the snapshot var isn't set yet.
