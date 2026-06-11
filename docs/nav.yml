@@ -3,16 +3,14 @@
 # Each `items[].slug` is the basename of an .adoc file under
 # docs/pages/<group-dir>/<slug>.adoc, rendered to site/docs/<slug>.html.
 #
-# Items WITHOUT a slug are placeholders — real product surfaces that
-# exist but where a faithful page is too large for first ship, or
-# where the API isn't stable enough to document yet. They render as
-# non-link greyed text. Tracking issue: #205.
+# Every visible item now resolves to an authored page. Tracking issue: #205.
 #
 # Items removed from the original design-mock structure (no backing
 # code in the repo, or out of scope for 0.1.0): Test suites, Fixtures,
 # Mocking models, MCP record & replay, Vitest / Jest, OpenTelemetry,
 # OpenAI-compat (as an exposed endpoint), Adapter API, Evaluations,
-# JUnit (Gitea + Artifactory) test support.
+# JUnit (Gitea + Artifactory) test support, PromptSpec schema (fully
+# covered by Prompt specs).
 
 groups:
   - heading: GET STARTED
@@ -27,22 +25,21 @@ groups:
     items:
       - { label: "Lifecycle states",   slug: "lifecycle" }
       - { label: "Prompt specs",       slug: "prompt-specs" }
-      - { label: "Releases" }
+      - { label: "Releases",           slug: "releases" }
 
   - heading: CLIENTS
     items:
-      - { label: "Java SDK" }
-      - { label: "TypeScript SDK" }
-      - { label: "Python SDK" }
-      - { label: "macOS menubar" }
+      - { label: "Java SDK",           slug: "java-sdk" }
+      - { label: "TypeScript SDK",     slug: "typescript-sdk" }
+      - { label: "Python SDK",         slug: "python-sdk" }
+      - { label: "macOS menubar",      slug: "macos-menubar" }
 
   - heading: INTEGRATIONS
     items:
-      - { label: "LLM providers" }
+      - { label: "LLM providers",      slug: "llm-providers" }
 
   - heading: REFERENCE
     items:
       - { label: "CLI",                slug: "cli" }
-      - { label: "REST API" }
-      - { label: "PromptSpec schema" }
-      - { label: "Config schema" }
+      - { label: "REST API",           slug: "rest-api" }
+      - { label: "Config schema",      slug: "config-schema" }

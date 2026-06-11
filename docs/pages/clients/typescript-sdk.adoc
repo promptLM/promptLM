@@ -1,0 +1,46 @@
+= TypeScript SDK
+:page-slug: typescript-sdk
+:page-section: CLIENTS
+:page-description: Load promptLM JSON prompt bundles from Node and TypeScript applications.
+:page-prev-label: Java SDK
+:page-prev-href: java-sdk.html
+:page-next-label: Python SDK
+:page-next-href: python-sdk.html
+
+The TypeScript SDK loads promptLM JSON prompt bundles. It's published
+as `@promptlm/client` and maintained in
+https://github.com/promptLM/promptlm-clients[promptLM/promptlm-clients]
+under `client-sdk-ts/`.
+// source: promptLM/promptlm-clients/client-sdk-ts/package.json — "name": "@promptlm/client", "version": "0.1.0"
+
+[NOTE]
+====
+The TypeScript SDK is work in progress for the 0.1.0 release. Track
+status in the
+https://github.com/promptLM/promptlm-clients[promptLM/promptlm-clients]
+repository.
+// source: promptLM/promptlm-clients README.md — "TypeScript ... Work in progress"
+====
+
+== Install
+
+[source,bash]
+----
+npm install @promptlm/client@0.1.0
+----
+// source: promptLM/promptlm-clients/client-sdk-ts/package.json
+
+The package ships ESM (`./dist/index.js`) and CJS (`./dist/index.cjs`)
+builds plus type declarations.
+// source: promptLM/promptlm-clients/client-sdk-ts/package.json
+
+== Runtime contract
+
+The SDK consumes the same JSON bundle the
+xref:java-sdk.html[Java SDK] does: `prompts/prompt-index.json` plus the
+per-prompt files it references. See
+xref:java-sdk.html#_runtime_bundles[Runtime bundles] for how that
+bundle is produced.
+
+For current API shape and usage examples, refer to the SDK's source
+README at https://github.com/promptLM/promptlm-clients/tree/main/client-sdk-ts.

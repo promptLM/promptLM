@@ -1,0 +1,70 @@
+= Java SDK
+:page-slug: java-sdk
+:page-section: CLIENTS
+:page-description: Load and resolve released promptLM prompt bundles from your JVM application.
+:page-prev-label: Releases
+:page-prev-href: releases.html
+:page-next-label: TypeScript SDK
+:page-next-href: typescript-sdk.html
+
+The Java SDK loads prompt bundles packaged on the JVM classpath via a
+small, dependency-light API. It's maintained in the
+https://github.com/promptLM/promptlm-clients[promptLM/promptlm-clients]
+repository under `client-sdk-java/`.
+// source: promptLM/promptlm-clients README.md
+
+Requires JDK 17+.
+// source: promptLM/promptlm-clients/client-sdk-java/README.md
+
+== Install
+
+[source,xml]
+----
+<dependency>
+    <groupId>dev.promptlm</groupId>
+    <artifactId>promptlm-client</artifactId>
+    <version>0.1.0</version>
+</dependency>
+----
+// source: promptLM/promptlm-clients/client-sdk-java/README.md
+
+Gradle (Kotlin DSL):
+
+[source,kotlin]
+----
+dependencies {
+    implementation("dev.promptlm:promptlm-client:0.1.0")
+}
+----
+// source: promptLM/promptlm-clients/client-sdk-java/README.md
+
+== Usage
+
+Drop a `prompts/prompt-index.json` (plus the prompt YAML files it
+references) anywhere on the classpath — typically under
+`src/main/resources` — and resolve a prompt by id:
+
+[source,java]
+----
+import dev.promptlm.client.ClasspathPromptLoader;
+import dev.promptlm.client.Prompt;
+import dev.promptlm.client.PromptLoader;
+
+PromptLoader loader = new ClasspathPromptLoader();
+Prompt prompt = loader.loadPrompt("greeting.v1");
+System.out.println(prompt.getName());
+System.out.println(prompt.getPrompt());
+----
+// source: promptLM/promptlm-clients/client-sdk-java/README.md
+
+The loader scans every classpath entry once on first use, builds an
+in-memory index, and rejects duplicate prompt ids across bundles.
+// source: promptLM/promptlm-clients/client-sdk-java/README.md
+
+== Runtime bundles
+
+The bundle format consumed by the SDK is produced by the bundle-release
+workflow described in
+xref:releases.html#_bundle_release_vs_prompt_release[Releases]. It
+packages the store's prompts as a Maven jar containing
+`prompts/prompt-index.json` and the referenced prompt files.

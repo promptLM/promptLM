@@ -1,0 +1,87 @@
+= Config schema
+:page-slug: config-schema
+:page-section: REFERENCE
+:page-description: Full configuration reference — environment variables and Spring properties read by the CLI and Studio.
+:page-prev-label: REST API
+:page-prev-href: rest-api.html
+
+This is the exhaustive reference for promptLM configuration. For the
+narrative version (what to set first, what's required) see
+xref:configuration.html[Configuration].
+
+== Environment variables
+
+The `.env.example` shipped at the repository root declares the
+variables the CLI and Studio expect.
+// source: .env.example
+
+[cols="2,1,3"]
+|===
+| Variable | Required | Purpose
+
+| `REPO_REMOTE_URL`                          | yes       | Base URL of the Git host's REST API endpoint (not the web UI). See xref:configuration.html#_environment_variables[Configuration § Environment variables] for the host → endpoint table.
+| `REPO_REMOTE_USERNAME`                     | yes       | Username or owner on the remote host.
+| `REPO_REMOTE_TOKEN`                        | yes       | Personal access token with `repo` scope.
+| `OPENAI_API_KEY`                           | yes       | Forwarded to Spring AI's OpenAI client and the `watch.open-ai-api-key` binding.
+| `ANTHROPIC_API_KEY`                        | no        | Forwarded to Spring AI's Anthropic client when the model catalog routes to Claude.
+| `REPO_REMOTE_ALLOW_LOOPBACK_HOST_ALIASES`  | no, default `true` | Permit loopback aliases when resolving the remote URL — useful for local Gitea setups.
+| `PROMPTLM_RELEASE_PROMOTION_MODE`          | no, default `direct` | Picks the prompt-release promotion mode. See xref:releases.html#_promotion_modes[Releases § Promotion modes].
+|===
+// source: apps/promptlm-cli/src/main/resources/application.yml:5-27; .env.example
+
+== `promptlm.*` properties
+
+Spring properties read by the CLI and Studio.
+
+[cols="3,1,3"]
+|===
+| Property | Default | Purpose
+
+| `promptlm.release.promotion.mode`                  | `direct`                  | `direct` or `pr_two_phase`. See xref:releases.html[Releases].
+| `promptlm.store.local.workspace-root`              | `${user.home}`            | Local directory under which prompt stores are created.
+| `promptlm.store.remote.username`                   | `${REPO_REMOTE_USERNAME}` | Username for the remote store client.
+| `promptlm.store.remote.token`                      | `${REPO_REMOTE_TOKEN}`    | Token for the remote store client.
+| `promptlm.store.remote.base-url`                   | `${REPO_REMOTE_URL}`      | Remote host API base URL.
+| `promptlm.store.remote.allow-loopback-host-aliases`| `true`                    | Permit loopback aliases when resolving the remote URL.
+|===
+// source: apps/promptlm-cli/src/main/resources/application.yml:9-19
+
+== `promptlm.gateway.litellm.*` properties
+
+The LiteLLM gateway module is opt-in. Full property reference, including
+nested `docker.*` and `discovery.*` groups, is on
+xref:llm-providers.html[LLM providers].
+// source: components/promptlm-execution-litellm/src/main/java/dev/promptlm/execution/litellm/LiteLlmGatewayProperties.java:26
+
+== Spring AI properties
+
+[cols="2,3"]
+|===
+| Property | Reads from
+
+| `spring.ai.openai.api-key`    | `OPENAI_API_KEY`
+| `spring.ai.anthropic.api-key` | `ANTHROPIC_API_KEY`
+|===
+// source: apps/promptlm-cli/src/main/resources/application.yml:21-27
+
+== Studio (`watch.*`) properties
+
+The Studio runtime reads two polling intervals plus the OpenAI key
+binding.
+
+[cols="2,1,3"]
+|===
+| Property | Default | Purpose
+
+| `watch.api-polling-interval`  | `10000` (ms) | How often Studio polls the API for project state.
+| `watch.dir-polling-interval`  | `1000` (ms)  | How often Studio polls the workspace directory.
+| `watch.open-ai-api-key`       | `${OPENAI_API_KEY}` | Bound from the env var; used by the Studio runtime path.
+|===
+// source: apps/promptlm-cli/src/main/resources/application.yml:3-7
+
+== Logging and management
+
+`logging.level.root` defaults to `warn` for the CLI distribution. JVM
+metric binders are disabled by default for fast startup; re-enable per
+your operational needs.
+// source: apps/promptlm-cli/src/main/resources/application.yml:36-45
