@@ -1,0 +1,105 @@
+= REST API
+:page-slug: rest-api
+:page-section: REFERENCE
+:page-description: HTTP surface exposed by Studio — controllers, paths, and the generated OpenAPI artifact.
+:page-prev-label: CLI
+:page-prev-href: cli.html
+:page-next-label: Config schema
+:page-next-href: config-schema.html
+
+xref:studio.html[Studio] is a Spring Boot application that exposes the
+backend over HTTP. The same endpoints back the CLI, the Studio
+frontend, and third-party integrations. They're grouped into four
+controllers.
+// source: components/promptlm-web-api/src/main/java/dev/promptlm/web/
+
+== Base paths
+
+[cols="1,3"]
+|===
+| Base path | Controller
+
+| `/api/prompts`      | `PromptSpecController` — read, write, release, execute, retire prompts; revisions; SSE execution events.
+| `/api/store`        | `PromptStoreController` — create / clone / switch active project; list owners; SSE store events.
+| `/api/llm`          | `ModelCatalogController` — LLM vendor + model catalog.
+| `/api/capabilities` | `CapabilitiesController` — what this Studio instance can do (feature flags).
+|===
+// source: PromptSpecController.java:74; PromptStoreController.java:57; ModelCatalogController.java:32; CapabilitiesController.java:25
+
+== Selected endpoints
+
+A non-exhaustive tour — the OpenAPI artifact below is the source of
+truth for every operation.
+
+[cols="2,3"]
+|===
+| Method + path | Purpose
+
+| `GET /api/prompts`                                       | List prompt specs in the active store.
+| `GET /api/prompts/{promptSpecId}`                        | Read a single spec by id.
+| `POST /api/prompts`                                      | Create a prompt draft.
+| `PUT /api/prompts/{promptSpecId}`                        | Update an existing spec.
+| `GET /api/prompts/template`                              | Default prompt template used when creating drafts.
+| `POST /api/prompts/{promptSpecId}/release`               | Release by id. Returns the spec carrying its `x-release` metadata. See xref:releases.html[Releases].
+| `POST /api/prompts/{promptSpecId}/release/complete`      | Complete a two-phase release.
+| `POST /api/prompts/execute`                              | Execute a free-form prompt (no spec on disk).
+| `POST /api/prompts/{promptSpecId}/execute`               | Execute a stored prompt.
+| `POST /api/prompts/{promptSpecId}/execute/retry`         | Retry a failed execution.
+| `POST /api/prompts/{promptSpecId}/push/retry`            | Retry a failed push to the remote store.
+| `PUT /api/prompts/{promptSpecId}/retire`                 | Retire a prompt.
+| `GET /api/prompts/{group}/{name}/revisions`              | List revisions for a spec.
+| `GET /api/prompts/{promptSpecId}/history`                | Older executions for a prompt.
+| `GET /api/prompts/{promptSpecId}/execution/events`       | Server-sent events stream for live execution updates.
+| `GET /api/prompts/stats`                                 | Aggregate prompt statistics.
+| `GET /api/prompts/groups`                                | Distinct prompt groups in the active store.
+|===
+// source: PromptSpecController.java — @GetMapping / @PostMapping / @PutMapping annotations
+
+[cols="2,3"]
+|===
+| Method + path | Purpose
+
+| `GET /api/store`                          | Active project, or 404 if none.
+| `POST /api/store`                         | Create a new prompt store.
+| `PUT /api/store`                          | Clone an existing remote store.
+| `GET /api/store/all`                      | List all projects.
+| `GET /api/store/owners`                   | Repository owners visible on the remote host.
+| `POST /api/store/connection`              | Connect to an existing repository.
+| `POST /api/store/switch/{projectId}`      | Switch the active project.
+| `GET /api/store/events/{operationId}`     | SSE stream for a long-running store operation.
+|===
+// source: PromptStoreController.java — @RequestMapping mappings
+
+[cols="2,3"]
+|===
+| Method + path | Purpose
+
+| `GET /api/llm/catalog`     | Vendor + model catalog used to populate dropdowns.
+| `GET /api/capabilities`    | Feature-flag style description of this Studio instance.
+|===
+// source: ModelCatalogController.java:48; CapabilitiesController.java:35
+
+== OpenAPI
+
+A full OpenAPI 3.1 document is generated as part of the webapp build at
+`apps/promptlm-webapp/target/generated/openapi/promptlm-webapp-openapi.json`.
+That artifact is the authoritative reference for request and response
+schemas, including operation IDs and OpenAPI tags.
+// source: apps/promptlm-webapp/target/generated/openapi/promptlm-webapp-openapi.json
+
+The same spec also drives the generated API client at
+`components/promptlm-api-client/`, used by the Studio frontend and the
+CLI.
+
+== Server-sent events
+
+Two SSE endpoints stream long-running operations rather than blocking
+on HTTP responses:
+
+* `GET /api/prompts/{promptSpecId}/execution/events` — execution
+  lifecycle and partial responses while a prompt runs.
+* `GET /api/store/events/{operationId}` — store operations (create,
+  clone, switch) that may span several seconds.
+
+Both produce `text/event-stream`.
+// source: PromptSpecController.java:932; PromptStoreController.java:234

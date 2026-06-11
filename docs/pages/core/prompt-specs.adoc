@@ -4,8 +4,8 @@
 :page-description: The PromptSpec YAML model — fields, request types, placeholders, and extensions.
 :page-prev-label: Lifecycle states
 :page-prev-href: lifecycle.html
-:page-next-label: CLI
-:page-next-href: cli.html
+:page-next-label: Releases
+:page-next-href: releases.html
 
 A `PromptSpec` is the on-disk representation of a single prompt — one
 YAML file persisted in the prompt store. Every prompt the CLI, Studio,
