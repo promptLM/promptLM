@@ -360,6 +360,10 @@ class GitHubPromptStoreReleaseFlowTest {
         }
 
         @Override
+        public void resetHardAndClean(File repo) {
+        }
+
+        @Override
         public void checkoutOrCreateBranch(String branchName, File repo) {
             createdBranches.add(branchName);
         }
