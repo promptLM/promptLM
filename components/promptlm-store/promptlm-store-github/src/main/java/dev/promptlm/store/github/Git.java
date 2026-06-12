@@ -522,6 +522,27 @@ class Git {
 
     }
 
+    /**
+     * Discard every uncommitted change in the working tree and index, plus every untracked
+     * file or directory (excluding {@code .git/}). Used by recovery paths that need to leave
+     * the working tree in a known-clean state before switching branches — e.g. the release
+     * flow's {@code finally} block that returns to {@code development} after a release.
+     *
+     * <p>Equivalent to {@code git reset --hard HEAD && git clean -fd}. Do <strong>not</strong>
+     * call this on user-facing write paths (save / commitLocally) where uncommitted edits may
+     * legitimately exist and must not be silently dropped.
+     */
+    public void resetHardAndClean(File repo) {
+        try (org.eclipse.jgit.api.Git git = org.eclipse.jgit.api.Git.open(repo)) {
+            git.reset().setMode(org.eclipse.jgit.api.ResetCommand.ResetType.HARD).call();
+            git.clean().setCleanDirectories(true).setForce(true).call();
+        } catch (IOException e) {
+            throw new GitException("Failed to open store for reset/clean", e);
+        } catch (GitAPIException e) {
+            throw new GitException("Failed to reset/clean working tree", e);
+        }
+    }
+
     public void cherryPick(String devBranch, PromptSpec completed, File repo) {
         try (org.eclipse.jgit.api.Git git = org.eclipse.jgit.api.Git.open(repo)) {
             Repository repository = git.getRepository();
