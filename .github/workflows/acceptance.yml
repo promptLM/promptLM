@@ -17,8 +17,18 @@ name: Acceptance Tests
 
 on:
   workflow_dispatch:
+    inputs:
+      profile:
+        description: 'Test profile: smoke (fast) or full (includes native-acceptance)'
+        type: choice
+        required: false
+        default: smoke
+        options:
+          - smoke
+          - full
   schedule:
     # Nightly full run against the default branch at 03:00 UTC.
+    # Schedule trigger always runs the `full` profile.
     - cron: '0 3 * * *'
   pull_request:
     types: [opened, synchronize, reopened, labeled]
@@ -34,6 +44,7 @@ jobs:
     outputs:
       run: ${{ steps.decide.outputs.run }}
       reason: ${{ steps.decide.outputs.reason }}
+      profile: ${{ steps.decide.outputs.profile }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
@@ -64,28 +75,43 @@ jobs:
           LABEL_NAME: ${{ github.event.label.name }}
           HAS_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'run-acceptance') }}
           PATHS_MATCH: ${{ steps.filter.outputs.critical }}
+          DISPATCH_PROFILE: ${{ github.event.inputs.profile }}
         run: |
           run=false
           reason=""
+          # Profile decision runs in parallel with the run decision:
+          #   full  -> nightly schedule, PR carrying the `run-acceptance`
+          #            label, or workflow_dispatch with profile=full
+          #   smoke -> everything else (default for manual dispatch and
+          #            unlabeled critical-path PRs)
+          profile=smoke
           case "$EVENT" in
             workflow_dispatch)
               run=true; reason="manual dispatch"
+              if [[ "$DISPATCH_PROFILE" == "full" ]]; then
+                profile=full
+              fi
               ;;
             schedule)
+              # Nightly always runs, always full — no PR context to gate on.
               run=true; reason="nightly schedule"
+              profile=full
               ;;
             pull_request)
               if [[ "$ACTION" == "labeled" ]]; then
                 if [[ "$LABEL_NAME" == "run-acceptance" ]]; then
                   run=true; reason="run-acceptance label added"
+                  profile=full
                 else
                   reason="unrelated label '$LABEL_NAME' — skipping"
                 fi
               else
                 if [[ "$HAS_LABEL" == "true" ]]; then
                   run=true; reason="run-acceptance label present"
+                  profile=full
                 elif [[ "$PATHS_MATCH" == "true" ]]; then
                   run=true; reason="critical paths changed"
+                  # smoke profile by default for unlabeled critical-path PRs
                 else
                   reason="no critical paths and no label — skipping"
                 fi
@@ -97,7 +123,8 @@ jobs:
           esac
           echo "run=$run" >> "$GITHUB_OUTPUT"
           echo "reason=$reason" >> "$GITHUB_OUTPUT"
-          echo "::notice title=Acceptance gate::run=$run ($reason)"
+          echo "profile=$profile" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Acceptance gate::run=$run profile=$profile ($reason)"
 
   # Provision a Hetzner Cloud VM and register it as a self-hosted runner.
   # Three-job pattern (provision → acceptance → teardown) lifted from
@@ -153,7 +180,11 @@ jobs:
     needs: [decide, provision-runner]
     if: needs.decide.outputs.run == 'true'
     runs-on: ${{ needs.provision-runner.outputs.label }}
-    timeout-minutes: 60
+    # Bumped from 60 to accommodate the cold native-image build on the
+    # fallback (non-snapshot) image. Drop back to 60 once
+    # promptLM/.github#36 bakes GraalVM + Playwright browsers into the
+    # snapshot.
+    timeout-minutes: 90
     permissions:
       contents: read
       packages: read
@@ -186,8 +217,45 @@ jobs:
       - name: Build promptLM Framework
         run: mvn -B -DskipTests install
 
-      - name: Run Acceptance Tests
-        run: mvn -B -f acceptance-tests/pom.xml -Dpromptlm.bootstrap.skip=true test
+      # Native binaries are only needed for the `native-acceptance` group,
+      # which runs in the `full` profile. We build them on the same VM as
+      # the tests so the binary SHA stays coherent with the source tree.
+      # When promptLM/.github#36 lands a snapshot with GraalVM
+      # `native-image` pre-installed, this step still works as-is — only
+      # the cold-install cost in `pre_runner_script` goes away.
+      - name: Build native binaries
+        if: needs.decide.outputs.profile == 'full'
+        run: >
+          mvn -B -Pnative
+          -pl apps/promptlm-cli,apps/promptlm-webapp -am
+          -DskipTests package
+
+      - name: Run acceptance tests (smoke profile)
+        if: needs.decide.outputs.profile == 'smoke'
+        run: >
+          mvn -B -f acceptance-tests/pom.xml
+          -Dpromptlm.bootstrap.skip=true
+          -Dpromptlm.test.groups=integration,native-smoke
+          -Dpromptlm.test.excludedGroups=
+          test
+
+      - name: Run acceptance tests (full profile)
+        if: needs.decide.outputs.profile == 'full'
+        env:
+          # PLAYWRIGHT_BROWSERS_PATH: set this once promptLM/.github#36 lands a snapshot
+          # with chromium pre-installed. Until then the in-pom playwright install step
+          # handles it on the fly.
+          CLI_NATIVE: ${{ github.workspace }}/apps/promptlm-cli/target/promptlm-cli
+          WEBAPP_NATIVE: ${{ github.workspace }}/apps/promptlm-webapp/target/promptlm-webapp
+        run: >
+          mvn -B -f acceptance-tests/pom.xml
+          -Dpromptlm.bootstrap.skip=true
+          -Dpromptlm.test.groups=integration,native-smoke,native-acceptance
+          -Dpromptlm.test.excludedGroups=
+          -Dpromptlm.test.cli.native.path=$CLI_NATIVE
+          -Dpromptlm.test.webapp.native.path=$WEBAPP_NATIVE
+          -Dpromptlm.test.requireNativeBinaries=true
+          test
 
       - name: Upload Acceptance Test Artifacts
         if: failure()
@@ -199,7 +267,9 @@ jobs:
             acceptance-tests/target/surefire-reports/**
             acceptance-tests/target/screenshots/**
             acceptance-tests/target/traces/**
-          retention-days: 1
+            acceptance-tests/target/diagnostics/**
+            acceptance-tests/target/snapshots/**
+          retention-days: 7
 
   teardown-runner:
     name: Teardown Hetzner runner
