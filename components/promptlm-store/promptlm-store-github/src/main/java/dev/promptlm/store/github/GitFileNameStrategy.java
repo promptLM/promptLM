@@ -22,7 +22,6 @@ import java.nio.file.Path;
 import java.util.Locale;
 import java.util.regex.Pattern;
 
-// TODO: MOve out of Git module
 @Component
 class GitFileNameStrategy {
 

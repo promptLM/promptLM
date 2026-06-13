@@ -115,22 +115,6 @@ public class PromptCommands {
     }
 
     @Command(
-            name = "prompt change",
-            description = "Deprecated command kept for compatibility.",
-            availabilityProvider = "promptAvailabilityProvider"
-    )
-    public String change(
-            @Option(longName = "id", required = true, description = "Prompt id.") String id,
-            @Option(longName = "userMessage", shortName = 'u', required = true, description = "Updated user message.") String userMessage
-    ) {
-        // FIXME: Reactivate this command
-        return "prompt change is no longer supported in the CLI. Use `promptlm studio` and edit the prompt in PromptLM Studio.";
-        // promptLMSpecService.updatePrompt(id, )
-    }
-
-
-
-    @Command(
             name = "prompt show",
             description = "Show the latest version of a prompt.",
             availabilityProvider = "promptAvailabilityProvider"
