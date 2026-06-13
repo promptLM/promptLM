@@ -422,13 +422,6 @@ const mapPromptSpecDraftToRequest = (draft: PromptSpecDraft): PromptSpecRequestP
     ],
   };
 
-  /*
-  // FIXME: Does author exist as property
-  if (draft.metadata.authors.length) {
-    payload.authors = draft.metadata.authors;
-  }
-   */
-
   if (payload.placeholder && Object.keys(payload.placeholder).length === 0) {
     delete payload.placeholder;
   }

@@ -238,12 +238,6 @@ public class GitProjectService implements ProjectService {
                     ownerAndRepo.repo()
             );
         }
-        // TODO(#275): drive description / defaultBranch / release config from
-        // promptlm.yml once the progressive-disclosure (Mode 1 default + opt-in
-        // promotion) UX ships. Until then, #276 has us default new repositories
-        // to release-enabled (Mode 2) so the full release pipeline is reachable
-        // without a user-facing "Enable releases" toggle. Revert this branch
-        // back to RepositoryGenerationConfig.defaults(...) when #275 lands.
         RepositoryGenerationConfig config = new RepositoryGenerationConfig(
                 ownerAndRepo.repo(),
                 ownerAndRepo.owner(),

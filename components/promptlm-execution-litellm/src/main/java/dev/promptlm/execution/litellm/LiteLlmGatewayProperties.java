@@ -42,10 +42,10 @@ public class LiteLlmGatewayProperties {
 
     /**
      * Base URL where LiteLLM is exposed.
-     * Defaults to {@code http://localhost:4000} for local development; override in production.
-     * TODO: derive the default from {@code docker.port} so the two settings stay in sync.
+     * When unset, derived from {@code docker.port} as {@code http://localhost:<docker.port>}
+     * so the two settings stay in sync. Override explicitly in production.
      */
-    private String baseUrl = "http://localhost:4000";
+    private String baseUrl;
 
     /**
      * Prompt vendor identifier handled by LiteLLM.
@@ -77,7 +77,7 @@ public class LiteLlmGatewayProperties {
     }
 
     public String getBaseUrl() {
-        return baseUrl;
+        return baseUrl != null ? baseUrl : "http://localhost:" + docker.getPort();
     }
 
     public void setBaseUrl(String baseUrl) {
