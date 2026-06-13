@@ -44,15 +44,6 @@ import static org.mockito.Mockito.when;
 class PromptCommandsTest {
 
     @Test
-    void changePointsUsersToStudio() {
-        PromptCommands commands = new PromptCommands(mock(PromptRenderer.class), mock(PromptStore.class), mock(PromptLifecycleFacade.class));
-
-        String result = commands.change("prompt-id", "updated message");
-
-        assertEquals("prompt change is no longer supported in the CLI. Use `promptlm studio` and edit the prompt in PromptLM Studio.", result);
-    }
-
-    @Test
     void createUsesBackendTemplateAsDraftSource() {
         PromptLifecycleFacade lifecycleFacade = mock(PromptLifecycleFacade.class);
 
