@@ -238,21 +238,25 @@ jobs:
           apt-get update
           apt-get install -y build-essential zlib1g-dev
 
-      # Swap JAVA_HOME to GraalVM CE 21 before the native build. The
-      # native-maven-plugin requires GRAALVM_HOME or JAVA_HOME to point at
-      # a GraalVM distribution; setup-java with distribution=graalvm sets
-      # both. GraalVM CE 21 is a fully-compatible JDK, so the subsequent
-      # acceptance-tests step keeps working under it.
+      # Swap JAVA_HOME to GraalVM CE 25 before the native build. We use
+      # `graalvm/setup-graalvm` rather than `actions/setup-java` because
+      # the latter's `distribution: graalvm` resolves to Oracle GraalVM
+      # (commercially branded redistribution), which is known to crash
+      # in SerializationFeature on Spring Boot 4 classpath shapes
+      # (NoClassDefFoundError inside com.oracle.svm.hosted.reflect.serialize).
+      # CE 25.x is what `build-full.sh` uses locally and what the release
+      # pipeline (release-java-ghpackages.yml in promptLM/.github) ships
+      # binaries with, so this aligns acceptance-CI with both.
       # When promptLM/.github#36 lands a snapshot with native-image
-      # pre-installed, this step can be removed (the snapshot will already
-      # have GraalVM on PATH).
-      - name: Set up GraalVM 21 for native-image
+      # pre-installed, this step can be removed.
+      - name: Set up GraalVM CE 25 for native-image
         if: needs.decide.outputs.profile == 'full'
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        uses: graalvm/setup-graalvm@329c42c5f4c343bceb505f0b28cc8499bc2bf174  # v1.5.4
         with:
-          java-version: '21'
-          distribution: 'graalvm'
+          java-version: '25'
+          distribution: 'graalvm-community'
           cache: 'maven'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       # Native binaries are only needed for the `native-acceptance` group,
       # which runs in the `full` profile. We build them on the same VM as
