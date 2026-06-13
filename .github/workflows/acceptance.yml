@@ -217,12 +217,25 @@ jobs:
       - name: Build promptLM Framework
         run: mvn -B -DskipTests install
 
+      # Swap JAVA_HOME to GraalVM CE 21 before the native build. The
+      # native-maven-plugin requires GRAALVM_HOME or JAVA_HOME to point at
+      # a GraalVM distribution; setup-java with distribution=graalvm sets
+      # both. GraalVM CE 21 is a fully-compatible JDK, so the subsequent
+      # acceptance-tests step keeps working under it.
+      # When promptLM/.github#36 lands a snapshot with native-image
+      # pre-installed, this step can be removed (the snapshot will already
+      # have GraalVM on PATH).
+      - name: Set up GraalVM 21 for native-image
+        if: needs.decide.outputs.profile == 'full'
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          java-version: '21'
+          distribution: 'graalvm'
+          cache: 'maven'
+
       # Native binaries are only needed for the `native-acceptance` group,
       # which runs in the `full` profile. We build them on the same VM as
       # the tests so the binary SHA stays coherent with the source tree.
-      # When promptLM/.github#36 lands a snapshot with GraalVM
-      # `native-image` pre-installed, this step still works as-is — only
-      # the cold-install cost in `pre_runner_script` goes away.
       - name: Build native binaries
         if: needs.decide.outputs.profile == 'full'
         run: >
