@@ -224,6 +224,20 @@ jobs:
       - name: Build promptLM Framework
         run: mvn -B -DskipTests install
 
+      # Install native-image toolchain deps. The pre_runner_script in
+      # provision-runner already lists these, but the org-baked snapshot
+      # referenced by HETZNER_RUNNER_SNAPSHOT_ID predates that edit and the
+      # `command -v docker` gate skips the install block on warm snapshots.
+      # apt-get install is idempotent — a no-op when the packages are
+      # already present (~1s) — and becomes redundant once .github#36 lands
+      # a snapshot that bakes them in.
+      - name: Install native-image toolchain (gcc, zlib)
+        if: needs.decide.outputs.profile == 'full'
+        run: |
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y build-essential zlib1g-dev
+
       # Swap JAVA_HOME to GraalVM CE 21 before the native build. The
       # native-maven-plugin requires GRAALVM_HOME or JAVA_HOME to point at
       # a GraalVM distribution; setup-java with distribution=graalvm sets
