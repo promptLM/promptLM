@@ -169,7 +169,14 @@ jobs:
               apt-get update
               apt-get install -y \
                 openjdk-17-jdk-headless openjdk-21-jdk-headless \
-                maven git curl wget jq unzip make ca-certificates
+                maven git curl wget jq unzip make ca-certificates \
+                build-essential zlib1g-dev
+              # build-essential (gcc + binutils + libc6-dev) and zlib1g-dev
+              # are required by GraalVM `native-image` when it links the
+              # static binary. Without them the native-maven-plugin fails
+              # with "Default native-compiler executable 'gcc' not found".
+              # Once promptLM/.github#36 bakes them into the snapshot this
+              # line becomes redundant.
               curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
               apt-get install -y nodejs
               npm install -g pnpm yarn
