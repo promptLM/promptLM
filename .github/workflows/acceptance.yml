@@ -164,7 +164,15 @@ jobs:
           # previous comment history; the `cx5x` tier is on the AMD line.
           # Tracked: promptLM/.github#38.
           server_type: cx53
-          location: fsn1
+          # nbg1 (Nuremberg) instead of fsn1 (Falkenstein): cx53 in fsn1
+          # 412'd persistently across the action's 16+ retries on run
+          # 27510965276, indicating the SKU+DC combo isn't currently
+          # bookable (stock-out or rollout-staging). Hetzner snapshots
+          # are project-global so HETZNER_RUNNER_SNAPSHOT_ID stays valid.
+          location: nbg1
+          # Cap provisioning retries at ~5 min (30 × 10s) instead of the
+          # default 1 hour. A persistent 412 won't self-heal; fail fast.
+          create_wait: '30'
           image: ${{ vars.HETZNER_RUNNER_SNAPSHOT_ID || 'ubuntu-24.04' }}
           # Fallback baseline install if the snapshot var isn't set yet.
           # The snapshot bake removes this branch in steady state.
