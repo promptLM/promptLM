@@ -150,14 +150,15 @@ jobs:
           mode: create
           github_token: ${{ secrets.RUNNER_PAT }}
           hcloud_token: ${{ secrets.HCLOUD_TOKEN }}
-          # cx33 (AMD EPYC, current gen) — what the snapshot bake uses.
-          # An earlier 412 ("Resource limitation detected", run 27355655316)
-          # appears to have been transient stock-out, not a persistent issue:
-          # the bake successfully uses cx33/fsn1 daily. A subsequent try with
-          # cx42 (run 27360766749) hit 422 because the cx42 name still
-          # resolves to the deprecated Intel SKU (type 106) — promptLM/.github's
-          # docs/hetzner-runners.md whitelist needs an update.
-          server_type: cx33
+          # cpx42 (AMD EPYC, 8 vCPU, 16 GB) — bumped from cx33 (4 vCPU,
+          # 8 GB) so the Spring Boot 4 webapp native-image build has the
+          # >6 GB it asks for without swap thrash. The compile phase
+          # consistently OOMed on cx33 around stage 6/8 even with 8 GB
+          # swap. The snapshot bake still uses cx33; if HETZNER_RUNNER_SNAPSHOT_ID
+          # isn't compatible with cpx42 the action will 422 and we'll
+          # need promptLM/.github's whitelist + snapshot bake re-run.
+          # Tracked: promptLM/.github (whitelist update issue forthcoming).
+          server_type: cpx42
           location: fsn1
           image: ${{ vars.HETZNER_RUNNER_SNAPSHOT_ID || 'ubuntu-24.04' }}
           # Fallback baseline install if the snapshot var isn't set yet.
@@ -238,18 +239,14 @@ jobs:
           apt-get update
           apt-get install -y build-essential zlib1g-dev
 
-      # Native-image asks for >6.15 GB to compile the Spring Boot 4
-      # webapp without GC thrash. cx33 ships 8 GB physical, of which
-      # the OS + runner agent + Maven already eat ~1.5 GB, so the
-      # compile phase OOMs during stage 6/8. Allocate 8 GB swap on the
-      # 80 GB SSD as headroom — the compile thrashes but completes.
-      # The right long-term fix is a larger SKU (cx33 → cx42-equivalent
-      # once .github's whitelist accepts a current AMD 16 GB type), but
-      # this unblocks the full profile today without cross-repo work.
+      # Defensive swap on top of the cpx42's 16 GB physical. Native-image
+      # asks for >6 GB; the cpx42 has plenty of headroom, so this is
+      # belt-and-braces. Remove once we have a few green runs proving
+      # cpx42 alone is enough.
       - name: Add swap for native-image
         if: needs.decide.outputs.profile == 'full'
         run: |
-          fallocate -l 8G /swapfile
+          fallocate -l 4G /swapfile
           chmod 600 /swapfile
           mkswap /swapfile
           swapon /swapfile
