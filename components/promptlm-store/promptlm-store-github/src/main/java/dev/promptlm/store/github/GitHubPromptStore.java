@@ -465,6 +465,13 @@ public class GitHubPromptStore implements PromptStore {
         } catch (Exception e) {
             throw new GitException("Failed to release prompt %s".formatted(promptSpec.getId()), e);
         } finally {
+            // Recovery: a release that committed in mid-flight can leave the index or working
+            // tree out of sync with HEAD (e.g. stale stat info from `addAllAndCommit`'s file
+            // walk), which makes JGit's checkout treat the branch switch as a conflict and
+            // throws CheckoutConflictException on `prompts/<group>/<name>/promptlm.yml`. Reset
+            // hard + clean before switching guarantees a clean working tree for the checkout.
+            // See #317 (native smoke release failure) and #372 (worktree concurrency).
+            git.resetHardAndClean(repo);
             git.checkoutBranch(DEV_BRANCH, repo);
         }
     }
