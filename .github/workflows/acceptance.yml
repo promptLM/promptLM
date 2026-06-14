@@ -238,6 +238,23 @@ jobs:
           apt-get update
           apt-get install -y build-essential zlib1g-dev
 
+      # Native-image asks for >6.15 GB to compile the Spring Boot 4
+      # webapp without GC thrash. cx33 ships 8 GB physical, of which
+      # the OS + runner agent + Maven already eat ~1.5 GB, so the
+      # compile phase OOMs during stage 6/8. Allocate 8 GB swap on the
+      # 80 GB SSD as headroom — the compile thrashes but completes.
+      # The right long-term fix is a larger SKU (cx33 → cx42-equivalent
+      # once .github's whitelist accepts a current AMD 16 GB type), but
+      # this unblocks the full profile today without cross-repo work.
+      - name: Add swap for native-image
+        if: needs.decide.outputs.profile == 'full'
+        run: |
+          fallocate -l 8G /swapfile
+          chmod 600 /swapfile
+          mkswap /swapfile
+          swapon /swapfile
+          free -h
+
       # Swap JAVA_HOME to GraalVM CE 25 before the native build. We use
       # `graalvm/setup-graalvm` rather than `actions/setup-java` because
       # the latter's `distribution: graalvm` resolves to Oracle GraalVM
