@@ -150,15 +150,20 @@ jobs:
           mode: create
           github_token: ${{ secrets.RUNNER_PAT }}
           hcloud_token: ${{ secrets.HCLOUD_TOKEN }}
-          # cpx42 (AMD EPYC, 8 vCPU, 16 GB) — bumped from cx33 (4 vCPU,
-          # 8 GB) so the Spring Boot 4 webapp native-image build has the
-          # >6 GB it asks for without swap thrash. The compile phase
-          # consistently OOMed on cx33 around stage 6/8 even with 8 GB
-          # swap. The snapshot bake still uses cx33; if HETZNER_RUNNER_SNAPSHOT_ID
-          # isn't compatible with cpx42 the action will 422 and we'll
-          # need promptLM/.github's whitelist + snapshot bake re-run.
-          # Tracked: promptLM/.github (whitelist update issue forthcoming).
-          server_type: cpx42
+          # cx53 (AMD EPYC shared, 16 vCPU, 32 GB) — bumped from cx33
+          # (4 vCPU, 8 GB) so the Spring Boot 4 webapp native-image build
+          # has the >6 GB it asks for without swap thrash. cx53 is the
+          # same shared-AMD family as cx33, just larger, so snapshot
+          # compatibility is preserved and the SKU whitelist almost
+          # certainly already accepts it. Cheaper than cpx42 (the
+          # dedicated-vCPU AMD variant) at €0.036/h vs ~€0.046/h, with
+          # double the RAM — the relevant constraint for native-image,
+          # which is memory-bound, not CPU-bound.
+          # Note: `cx42` itself is *not* usable — that name still
+          # resolves to a deprecated Intel SKU (type 106) per the
+          # previous comment history; the `cx5x` tier is on the AMD line.
+          # Tracked: promptLM/.github#38.
+          server_type: cx53
           location: fsn1
           image: ${{ vars.HETZNER_RUNNER_SNAPSHOT_ID || 'ubuntu-24.04' }}
           # Fallback baseline install if the snapshot var isn't set yet.
@@ -238,19 +243,6 @@ jobs:
           export DEBIAN_FRONTEND=noninteractive
           apt-get update
           apt-get install -y build-essential zlib1g-dev
-
-      # Defensive swap on top of the cpx42's 16 GB physical. Native-image
-      # asks for >6 GB; the cpx42 has plenty of headroom, so this is
-      # belt-and-braces. Remove once we have a few green runs proving
-      # cpx42 alone is enough.
-      - name: Add swap for native-image
-        if: needs.decide.outputs.profile == 'full'
-        run: |
-          fallocate -l 4G /swapfile
-          chmod 600 /swapfile
-          mkswap /swapfile
-          swapon /swapfile
-          free -h
 
       # Swap JAVA_HOME to GraalVM CE 25 before the native build. We use
       # `graalvm/setup-graalvm` rather than `actions/setup-java` because
