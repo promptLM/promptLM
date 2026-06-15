@@ -109,8 +109,18 @@ class LifecyclePipelineTest {
         studio.openNewPromptForm();
 
         recorder.step("studio: fill required fields");
+        // The v2 SPA form gates the Save button until every required field
+        // is non-blank. See
+        // `components/promptlm-web-ui/src/features/prompt-editor/validation.ts`:
+        //   - validateMetadata        → name + group + description
+        //   - validateModelConfiguration → request.vendor + request.model
+        // Leaving any of these blank keeps the Create/Save button
+        // disabled and clickSave times out on Playwright's 30s budget.
         studio.fillName(promptName);
         studio.fillGroup(GROUP);
+        studio.fillDescription("Lifecycle acceptance scenario: walks DRAFT → SAVED → COMMITTED → PUSHED.");
+        studio.selectVendor("anthropic");
+        studio.setModel("claude-sonnet-4-5");
         studio.fillUserMessage("Lifecycle smoke message for " + promptName);
 
         recorder.step("witness: DRAFT — disk has no spec yet");

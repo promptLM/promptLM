@@ -131,6 +131,34 @@ public final class StudioDriver {
         page.getByTestId("prompt-text").fill(body);
     }
 
+    /**
+     * Fills the description textarea. Required for the Save button to enable —
+     * see {@code components/promptlm-web-ui/src/features/prompt-editor/validation.ts}
+     * (validateMetadata) which rejects blank descriptions with
+     * "Add a short description so collaborators understand the prompt."
+     */
+    public void fillDescription(String description) {
+        page.getByTestId("description-text").fill(description);
+    }
+
+    /**
+     * Selects an LLM vendor. Required field. Valid values today (per
+     * {@code VENDOR_OPTIONS} in {@code components/ui/src/prompts-v2/form/sections.tsx}):
+     * {@code anthropic}, {@code openai}, {@code google}, {@code azure}, {@code custom}.
+     */
+    public void selectVendor(String vendor) {
+        page.getByTestId("request-vendor-select").selectOption(vendor);
+    }
+
+    /**
+     * Sets the model identifier (free-text input, despite the testid suffix
+     * {@code -select}). Required field. Examples: {@code claude-sonnet-4-5},
+     * {@code gpt-4.1-mini}.
+     */
+    public void setModel(String model) {
+        page.getByTestId("request-model-select").fill(model);
+    }
+
     // ---------------------------------------------------------------------
     // Sub-areas
     // ---------------------------------------------------------------------
