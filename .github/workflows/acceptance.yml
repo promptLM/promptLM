@@ -238,19 +238,34 @@ jobs:
       - name: Build promptLM Framework
         run: mvn -B -DskipTests install
 
-      # Install native-image toolchain deps. The pre_runner_script in
-      # provision-runner already lists these, but the org-baked snapshot
-      # referenced by HETZNER_RUNNER_SNAPSHOT_ID predates that edit and the
+      # Install native-image toolchain deps and the system Chrome
+      # binary that PlaywrightSession launches via `channel: 'chrome'`.
+      # The pre_runner_script in provision-runner already lists native-image
+      # deps, but the org-baked snapshot referenced by
+      # HETZNER_RUNNER_SNAPSHOT_ID predates that edit and the
       # `command -v docker` gate skips the install block on warm snapshots.
-      # apt-get install is idempotent — a no-op when the packages are
-      # already present (~1s) — and becomes redundant once .github#36 lands
-      # a snapshot that bakes them in.
-      - name: Install native-image toolchain (gcc, zlib)
+      # Chrome is added here so HappyPathUserJourneyTest and the new
+      # LifecyclePipelineTest can launch Playwright sessions. Both
+      # become redundant once .github#36 bakes them into the snapshot.
+      - name: Install native-image toolchain (gcc, zlib) + Chrome
         if: needs.decide.outputs.profile == 'full'
         run: |
           export DEBIAN_FRONTEND=noninteractive
           apt-get update
-          apt-get install -y build-essential zlib1g-dev
+          apt-get install -y build-essential zlib1g-dev wget gnupg
+          # Google Chrome stable — the channel PlaywrightSession launches.
+          # Adding Google's apt source rather than `chromium-browser` so
+          # the binary lands at /opt/google/chrome/chrome (the path the
+          # Playwright `channel: 'chrome'` launcher hardcodes).
+          if ! command -v google-chrome >/dev/null 2>&1; then
+            wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub \
+              | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg
+            echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" \
+              > /etc/apt/sources.list.d/google-chrome.list
+            apt-get update
+            apt-get install -y google-chrome-stable
+          fi
+          google-chrome --version
 
       # Swap JAVA_HOME to GraalVM CE 25 before the native build. We use
       # `graalvm/setup-graalvm` rather than `actions/setup-java` because

@@ -65,7 +65,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @NativeAcceptanceTest
 @WithNativeApp(binaries = {WithNativeApp.Binary.WEBAPP, WithNativeApp.Binary.CLI}, withGitea = true)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class LifecycleFullPipelineScenario {
+class LifecyclePipelineTest {
 
     private static final String GROUP = "acc";
     private static final Duration GITEA_PROBE_TIMEOUT = Duration.ofMinutes(2);
