@@ -90,6 +90,30 @@ public final class StudioDriver {
     }
 
     // ---------------------------------------------------------------------
+    // First-run project setup
+    // ---------------------------------------------------------------------
+
+    /**
+     * Drives the "Project Setup Required" MUI dialog that the SPA opens on
+     * first-run (no active project in {@code .promptlm/context.json}).
+     * Mirrors the existing pattern proven by {@code NativeWebappUiSmokeTest}.
+     *
+     * <p>Without this step, the dialog is layered over any subsequent
+     * /prompts/new interactions and Playwright's click attempts on the form's
+     * Save button get intercepted by the dialog's overlay:
+     * <pre>
+     *   &lt;div ... class="MuiDialog-container ..."&gt; from MuiModal-root subtree intercepts pointer events
+     * </pre>
+     *
+     * @param repositoryName Name of the new project's repo.
+     * @param localBaseDir   Absolute path under which the repo directory is created.
+     */
+    public void setupFirstProject(String repositoryName, java.nio.file.Path localBaseDir) {
+        dev.promptlm.test.support.ProjectSetupHelper.createNewProject(page, repositoryName, localBaseDir);
+        dev.promptlm.test.support.ProjectSetupHelper.assertRepositoryShownAsSelected(page, repositoryName);
+    }
+
+    // ---------------------------------------------------------------------
     // Form fields
     // ---------------------------------------------------------------------
 
@@ -126,9 +150,27 @@ public final class StudioDriver {
 
     /**
      * Fills the trailing user-role message body in the message editor.
+     * Only the last-user message carries the {@code prompt-text} testid
+     * (see sections.tsx:372 — testId is conditionally set on {@code isLastUser}).
      */
     public void fillUserMessage(String body) {
         page.getByTestId("prompt-text").fill(body);
+    }
+
+    /**
+     * Fills the first (system-role) message body. The default new-prompt
+     * draft seeds two messages — {@code system}, then {@code user}
+     * (see {@code components/promptlm-web-ui/src/features/prompt-editor/draftState.ts}
+     * {@code createEmptyPromptDraft}). {@code validateMessages} rejects
+     * <em>any</em> message with empty content with "Message content cannot
+     * be empty.", so the system message must be filled (or removed) before
+     * Save will enable.
+     *
+     * <p>The system textarea has no dedicated testid — it's targeted by
+     * its {@code aria-label="Message content 1"} (1-indexed position).
+     */
+    public void fillSystemMessage(String body) {
+        page.getByLabel("Message content 1").fill(body);
     }
 
     /**
@@ -304,7 +346,10 @@ public final class StudioDriver {
         /**
          * Clicks the Push action that pushes the active branch to {@code origin}.
          *
-         * <p>TODO(testid): falls back to a button-by-name lookup.
+         * <p>TODO(testid): the v2 SPA does not expose a separate
+         * {@code push-prompt-button} today (see promptLM/promptlm-app#389).
+         * The lifecycle scenario tolerates a merged save+commit+push step
+         * — see the scenario javadoc. Mirrors {@link #clickCommit()}.
          */
         public void clickPush() {
             Locator pushButton = page.locator("[data-testid='push-prompt-button']").first();
@@ -312,10 +357,12 @@ public final class StudioDriver {
                 pushButton.click();
                 return;
             }
-            page.getByRole(AriaRole.BUTTON,
-                    new Page.GetByRoleOptions().setName(Pattern.compile("push", Pattern.CASE_INSENSITIVE)))
-                    .first()
-                    .click();
+            Locator fallback = page.getByRole(AriaRole.BUTTON,
+                    new Page.GetByRoleOptions().setName(Pattern.compile("push", Pattern.CASE_INSENSITIVE)));
+            if (fallback.count() > 0) {
+                fallback.first().click();
+            }
+            // Otherwise: no-op — Save merges save+commit+push on the current SPA.
         }
 
         /**

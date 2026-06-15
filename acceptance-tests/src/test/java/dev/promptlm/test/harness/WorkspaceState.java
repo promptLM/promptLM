@@ -184,10 +184,24 @@ public final class WorkspaceState {
      *
      * <p>Without this, PUSHED assertions race against a stale
      * {@code refs/remotes/origin/<branch>}.
+     *
+     * <p>Gitea requires authentication even for read; pass the credentials
+     * explicitly. {@code NativeBinaryFixture} threads them through to the
+     * native CLI/webapp via {@code REPO_REMOTE_USERNAME}/{@code REPO_REMOTE_TOKEN}
+     * system properties, but those land on the spawned subprocesses, not on
+     * the test JVM running JGit — so the witness has to be told.
+     *
+     * @param username Gitea username (e.g. {@code GiteaContainer.getAdminUsername()}).
+     * @param token    Gitea API token (e.g. {@code GiteaContainer.getAdminToken()}).
      */
-    public void refreshRemoteTracking() {
+    public void refreshRemoteTracking(String username, String token) {
         try (Git git = Git.open(activeRepo.toFile())) {
-            git.fetch().call();
+            org.eclipse.jgit.api.FetchCommand fetch = git.fetch();
+            if (username != null && token != null) {
+                fetch.setCredentialsProvider(
+                        new org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider(username, token));
+            }
+            fetch.call();
         }
         catch (Exception e) {
             // Best effort — surface as runtime exception so the caller sees
