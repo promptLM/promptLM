@@ -48,6 +48,26 @@ public final class PromptWorkflowHelper {
         page.getByTestId("prompt-name-input").fill(input.name());
         page.getByTestId("prompt-group-input").fill(input.group());
         page.getByTestId("description-text").fill(input.description());
+
+        // Select a vendor + model so validateModelConfiguration (in
+        // components/promptlm-web-ui/src/features/prompt-editor/validation.ts)
+        // doesn't block the Save button on blank required fields. Hard-coded
+        // to anthropic + claude-sonnet-4-5 — these are placeholder values
+        // used only for the test journey; no actual model invocation happens
+        // through the create form. See VENDOR_OPTIONS in
+        // components/ui/src/prompts-v2/form/sections.tsx for the full set.
+        page.getByTestId("request-vendor-select").selectOption("anthropic");
+        page.getByTestId("request-model-select").fill("claude-sonnet-4-5");
+
+        // The default new-prompt draft seeds two messages — {role:'system'}
+        // then {role:'user'} — both empty. validateMessages rejects any
+        // empty content. The user message is filled later via the
+        // `prompt-text` testid; the system message has no dedicated testid
+        // and must be targeted by its aria-label "Message content 1"
+        // (1-indexed position).
+        page.getByLabel("Message content 1").fill(
+                "System seed for " + input.name() + " (required by validateMessages).");
+
         configureCustomPlaceholderDelimiters(page, input.openDelimiter(), input.closeDelimiter());
 
         for (Map.Entry<String, String> placeholder : input.placeholderDefaults().entrySet()) {

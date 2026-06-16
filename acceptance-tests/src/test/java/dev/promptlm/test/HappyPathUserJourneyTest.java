@@ -164,6 +164,19 @@ public class HappyPathUserJourneyTest {
         page.getByTestId("prompt-name-input").fill(PROMPT_NAME);
         page.getByTestId("prompt-group-input").fill(GROUP);
         page.getByTestId("description-text").fill("Description of the prompt.");
+
+        // Select a vendor + model so validateModelConfiguration (in
+        // components/promptlm-web-ui/src/features/prompt-editor/validation.ts)
+        // doesn't block the Save button on blank required fields.
+        page.getByTestId("request-vendor-select").selectOption("anthropic");
+        page.getByTestId("request-model-select").fill("claude-sonnet-4-5");
+
+        // The default new-prompt draft seeds {role:'system'} + {role:'user'}
+        // both empty. validateMessages rejects any empty content. The system
+        // message has no testid; target it by aria-label "Message content 1".
+        page.getByLabel("Message content 1").fill(
+                "System seed for " + PROMPT_NAME + " (required by validateMessages).");
+
         configureCustomPlaceholderDelimiters("[[", "]]");
         addPlaceholder("number_one");
         addPlaceholder("number_two");
