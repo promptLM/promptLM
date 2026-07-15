@@ -13,7 +13,7 @@
     <properties>
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <github-api.version>2.0-rc.6</github-api.version>
+        <github-api.version>2.0-rc.7</github-api.version>
         <jgit.version>7.1.1.202505221757-r</jgit.version>
     </properties>
 
