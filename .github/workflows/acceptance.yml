@@ -150,26 +150,24 @@ jobs:
           mode: create
           github_token: ${{ secrets.RUNNER_PAT }}
           hcloud_token: ${{ secrets.HCLOUD_TOKEN }}
-          # cx43 (AMD EPYC shared, 8 vCPU, 16 GB) — bumped from cx33
-          # (4 vCPU, 8 GB) so the Spring Boot 4 webapp native-image build
-          # has the >6.15 GB it asks for without swap thrash. 16 GB clears
-          # the build-universe peak comfortably; native-image is
+          # cpx42 — AMD EPYC shared vCPU, 8 vCPU / 16 GB. Bumped from cx33
+          # (4 vCPU / 8 GB), which OOMed the Spring Boot 4 webapp
+          # native-image build at stage 6/8 ("Compiling methods") even with
+          # 8 GB of swap. native-image asks for >6.15 GB during
+          # build-universe; 16 GB clears that comfortably. The build is
           # memory-bound, not CPU-bound, so 8 vCPU is plenty.
           #
-          # We originally targeted cx53 (16 vCPU, 32 GB) but it 412'd
-          # persistently ("Resource limitation detected") in BOTH fsn1 and
-          # nbg1 — a 412 resource-limit is the Hetzner *project* quota
-          # (account-level, region-global), not a per-DC stock-out, so
-          # switching datacenter never helped. The project quota doesn't
-          # currently allow a 16-vCPU instance; cx43 (8 vCPU) sits under it.
-          # To go back to cx53, request a limit increase in the Hetzner
-          # Console (account → Limits → Request change) first.
-          #
-          # Note: `cx42`/`cx52` are *not* usable — those names still
-          # resolve to deprecated Intel SKUs (type 106); the `cx_3` tier
-          # (cx43/cx53) is the current AMD line.
-          # Tracked: promptLM/.github#38 (cost + 412 troubleshooting documented).
-          server_type: cx43
+          # SKU history — both alternatives return HTTP 412 "Resource
+          # limitation detected" on every create attempt, which is the
+          # Hetzner *project quota* (account-level and region-global, so
+          # changing datacenter never helps):
+          #   - cx53 (16 vCPU / 32 GB): 412 in both fsn1 and nbg1.
+          #   - cx43 (8 vCPU):          412 in fsn1.
+          # cpx42 is the CPX (shared AMD) line and provisions under the
+          # current quota. Quotas are enforced per tier, so a SKU's vCPU
+          # count alone doesn't predict whether it will place.
+          # Tracked: promptLM/.github#38.
+          server_type: cpx42
           # fsn1 (Falkenstein), the org-default region. The earlier nbg1
           # switch was chasing a misdiagnosed fsn1 "stock-out"; the real
           # cause was the project quota above, which is region-global.
