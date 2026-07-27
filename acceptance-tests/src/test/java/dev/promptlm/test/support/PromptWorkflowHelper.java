@@ -61,12 +61,16 @@ public final class PromptWorkflowHelper {
 
         // The default new-prompt draft seeds two messages — {role:'system'}
         // then {role:'user'} — both empty. validateMessages rejects any
-        // empty content. The user message is filled later via the
-        // `prompt-text` testid; the system message has no dedicated testid
-        // and must be targeted by its aria-label "Message content 1"
-        // (1-indexed position).
+        // empty content. Fill both up front; the `user-prompt-button` click
+        // below *adds a THIRD* message that the existing test then types
+        // into, so without seeding these two we'd end up with an empty
+        // middle message and a stuck "! Empty." error on Save. Targeted
+        // by aria-label "Message content N" (1-indexed) — neither the
+        // system row nor the middle user row has a dedicated testid.
         page.getByLabel("Message content 1").fill(
                 "System seed for " + input.name() + " (required by validateMessages).");
+        page.getByLabel("Message content 2").fill(
+                "Default-user seed for " + input.name() + " (required by validateMessages).");
 
         configureCustomPlaceholderDelimiters(page, input.openDelimiter(), input.closeDelimiter());
 

@@ -172,10 +172,17 @@ public class HappyPathUserJourneyTest {
         page.getByTestId("request-model-select").fill("claude-sonnet-4-5");
 
         // The default new-prompt draft seeds {role:'system'} + {role:'user'}
-        // both empty. validateMessages rejects any empty content. The system
-        // message has no testid; target it by aria-label "Message content 1".
+        // both empty. validateMessages rejects any empty content. The
+        // `user-prompt-button` click below ADDS a third user message the
+        // test then types into, so we must seed both defaults up front —
+        // otherwise the original (middle) user message stays empty and
+        // Save stays disabled with "! Empty." on the messages section.
+        // Neither the system nor the middle-user row has a dedicated
+        // testid; target by aria-label "Message content N" (1-indexed).
         page.getByLabel("Message content 1").fill(
                 "System seed for " + PROMPT_NAME + " (required by validateMessages).");
+        page.getByLabel("Message content 2").fill(
+                "Default-user seed for " + PROMPT_NAME + " (required by validateMessages).");
 
         configureCustomPlaceholderDelimiters("[[", "]]");
         addPlaceholder("number_one");
