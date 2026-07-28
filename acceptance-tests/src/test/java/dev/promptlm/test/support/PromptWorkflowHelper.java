@@ -49,15 +49,17 @@ public final class PromptWorkflowHelper {
         page.getByTestId("prompt-group-input").fill(input.group());
         page.getByTestId("description-text").fill(input.description());
 
-        // Select a vendor + model so validateModelConfiguration (in
-        // components/promptlm-web-ui/src/features/prompt-editor/validation.ts)
-        // doesn't block the Save button on blank required fields. Hard-coded
-        // to anthropic + claude-sonnet-4-5 — these are placeholder values
-        // used only for the test journey; no actual model invocation happens
-        // through the create form. See VENDOR_OPTIONS in
-        // components/ui/src/prompts-v2/form/sections.tsx for the full set.
-        page.getByTestId("request-vendor-select").selectOption("anthropic");
-        page.getByTestId("request-model-select").fill("claude-sonnet-4-5");
+        // Select a vendor + model. Required by validateModelConfiguration
+        // (promptlm-web-ui/src/features/prompt-editor/validation.ts) — the
+        // backend's default template returns both blank since #309, so Save
+        // stays disabled otherwise.
+        //
+        // openai specifically: saving triggers a real LLM execution and the
+        // push to the remote is chained to that execution succeeding. The
+        // acceptance suite authenticates with OPENAI_API_KEY, so any other
+        // vendor 401s and the spec never leaves the working tree.
+        page.getByTestId("request-vendor-select").selectOption("openai");
+        page.getByTestId("request-model-select").fill("gpt-4o-mini");
 
         // The default new-prompt draft seeds two messages — {role:'system'}
         // then {role:'user'} — both empty. validateMessages rejects any

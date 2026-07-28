@@ -165,11 +165,18 @@ public class HappyPathUserJourneyTest {
         page.getByTestId("prompt-group-input").fill(GROUP);
         page.getByTestId("description-text").fill("Description of the prompt.");
 
-        // Select a vendor + model so validateModelConfiguration (in
-        // components/promptlm-web-ui/src/features/prompt-editor/validation.ts)
-        // doesn't block the Save button on blank required fields.
-        page.getByTestId("request-vendor-select").selectOption("anthropic");
-        page.getByTestId("request-model-select").fill("claude-sonnet-4-5");
+        // Select a vendor + model. Two reasons this must be openai:
+        //  1. validateModelConfiguration (promptlm-web-ui/src/features/
+        //     prompt-editor/validation.ts) blocks Save on blank vendor/model,
+        //     and the backend's default template deliberately returns both
+        //     blank since #309, so the form cannot be saved without them.
+        //  2. Save triggers a real LLM execution, and the push to
+        //     `development` is chained to that execution succeeding. This
+        //     suite authenticates with OPENAI_API_KEY (see the run-prompt
+        //     test below), so any other vendor 401s and the prompt never
+        //     reaches the remote.
+        page.getByTestId("request-vendor-select").selectOption("openai");
+        page.getByTestId("request-model-select").fill("gpt-4o-mini");
 
         // The default new-prompt draft seeds {role:'system'} + {role:'user'}
         // both empty. validateMessages rejects any empty content. The

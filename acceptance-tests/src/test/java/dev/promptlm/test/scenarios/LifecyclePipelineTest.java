@@ -120,8 +120,11 @@ class LifecyclePipelineTest {
         studio.fillName(promptName);
         studio.fillGroup(GROUP);
         studio.fillDescription("Lifecycle acceptance scenario: walks DRAFT → SAVED → COMMITTED → PUSHED.");
-        studio.selectVendor("anthropic");
-        studio.setModel("claude-sonnet-4-5");
+        // openai + gpt-4o-mini: Save triggers a real LLM execution and the
+        // push to origin is chained to it succeeding. The acceptance suite
+        // authenticates with OPENAI_API_KEY, so any other vendor 401s.
+        studio.selectVendor("openai");
+        studio.setModel("gpt-4o-mini");
         studio.fillSystemMessage("You are a helpful assistant for the lifecycle acceptance scenario.");
         studio.fillUserMessage("Lifecycle smoke message for " + promptName);
 
