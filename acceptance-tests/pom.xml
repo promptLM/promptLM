@@ -243,5 +243,17 @@
         <profile>
             <id>github</id>
         </profile>
+        <profile>
+            <!--
+                Selects the end-to-end native-binary acceptance scenarios
+                (annotated with @NativeAcceptanceTest). Mirrors the existing
+                native-smoke profile wiring above by overriding the test-group
+                property surefire uses.
+            -->
+            <id>native-acceptance</id>
+            <properties>
+                <promptlm.test.groups>native-acceptance</promptlm.test.groups>
+            </properties>
+        </profile>
     </profiles>
 </project>

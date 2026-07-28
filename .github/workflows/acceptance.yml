@@ -17,8 +17,18 @@ name: Acceptance Tests
 
 on:
   workflow_dispatch:
+    inputs:
+      profile:
+        description: 'Test profile: smoke (fast) or full (includes native-acceptance)'
+        type: choice
+        required: false
+        default: smoke
+        options:
+          - smoke
+          - full
   schedule:
     # Nightly full run against the default branch at 03:00 UTC.
+    # Schedule trigger always runs the `full` profile.
     - cron: '0 3 * * *'
   pull_request:
     types: [opened, synchronize, reopened, labeled]
@@ -34,6 +44,7 @@ jobs:
     outputs:
       run: ${{ steps.decide.outputs.run }}
       reason: ${{ steps.decide.outputs.reason }}
+      profile: ${{ steps.decide.outputs.profile }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
@@ -64,28 +75,43 @@ jobs:
           LABEL_NAME: ${{ github.event.label.name }}
           HAS_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'run-acceptance') }}
           PATHS_MATCH: ${{ steps.filter.outputs.critical }}
+          DISPATCH_PROFILE: ${{ github.event.inputs.profile }}
         run: |
           run=false
           reason=""
+          # Profile decision runs in parallel with the run decision:
+          #   full  -> nightly schedule, PR carrying the `run-acceptance`
+          #            label, or workflow_dispatch with profile=full
+          #   smoke -> everything else (default for manual dispatch and
+          #            unlabeled critical-path PRs)
+          profile=smoke
           case "$EVENT" in
             workflow_dispatch)
               run=true; reason="manual dispatch"
+              if [[ "$DISPATCH_PROFILE" == "full" ]]; then
+                profile=full
+              fi
               ;;
             schedule)
+              # Nightly always runs, always full — no PR context to gate on.
               run=true; reason="nightly schedule"
+              profile=full
               ;;
             pull_request)
               if [[ "$ACTION" == "labeled" ]]; then
                 if [[ "$LABEL_NAME" == "run-acceptance" ]]; then
                   run=true; reason="run-acceptance label added"
+                  profile=full
                 else
                   reason="unrelated label '$LABEL_NAME' — skipping"
                 fi
               else
                 if [[ "$HAS_LABEL" == "true" ]]; then
                   run=true; reason="run-acceptance label present"
+                  profile=full
                 elif [[ "$PATHS_MATCH" == "true" ]]; then
                   run=true; reason="critical paths changed"
+                  # smoke profile by default for unlabeled critical-path PRs
                 else
                   reason="no critical paths and no label — skipping"
                 fi
@@ -97,7 +123,8 @@ jobs:
           esac
           echo "run=$run" >> "$GITHUB_OUTPUT"
           echo "reason=$reason" >> "$GITHUB_OUTPUT"
-          echo "::notice title=Acceptance gate::run=$run ($reason)"
+          echo "profile=$profile" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Acceptance gate::run=$run profile=$profile ($reason)"
 
   # Provision a Hetzner Cloud VM and register it as a self-hosted runner.
   # Three-job pattern (provision → acceptance → teardown) lifted from
@@ -123,15 +150,33 @@ jobs:
           mode: create
           github_token: ${{ secrets.RUNNER_PAT }}
           hcloud_token: ${{ secrets.HCLOUD_TOKEN }}
-          # cx33 (AMD EPYC, current gen) — what the snapshot bake uses.
-          # An earlier 412 ("Resource limitation detected", run 27355655316)
-          # appears to have been transient stock-out, not a persistent issue:
-          # the bake successfully uses cx33/fsn1 daily. A subsequent try with
-          # cx42 (run 27360766749) hit 422 because the cx42 name still
-          # resolves to the deprecated Intel SKU (type 106) — promptLM/.github's
-          # docs/hetzner-runners.md whitelist needs an update.
-          server_type: cx33
+          # cpx42 — AMD EPYC shared vCPU, 8 vCPU / 16 GB. Bumped from cx33
+          # (4 vCPU / 8 GB), which OOMed the Spring Boot 4 webapp
+          # native-image build at stage 6/8 ("Compiling methods") even with
+          # 8 GB of swap. native-image asks for >6.15 GB during
+          # build-universe; 16 GB clears that comfortably. The build is
+          # memory-bound, not CPU-bound, so 8 vCPU is plenty.
+          #
+          # SKU history — both alternatives return HTTP 412 "Resource
+          # limitation detected" on every create attempt, which is the
+          # Hetzner *project quota* (account-level and region-global, so
+          # changing datacenter never helps):
+          #   - cx53 (16 vCPU / 32 GB): 412 in both fsn1 and nbg1.
+          #   - cx43 (8 vCPU):          412 in fsn1.
+          # cpx42 is the CPX (shared AMD) line and provisions under the
+          # current quota. Quotas are enforced per tier, so a SKU's vCPU
+          # count alone doesn't predict whether it will place.
+          # Tracked: promptLM/.github#38.
+          server_type: cpx42
+          # fsn1 (Falkenstein), the org-default region. The earlier nbg1
+          # switch was chasing a misdiagnosed fsn1 "stock-out"; the real
+          # cause was the project quota above, which is region-global.
+          # Hetzner snapshots are project-global so
+          # HETZNER_RUNNER_SNAPSHOT_ID stays valid in either region.
           location: fsn1
+          # Cap provisioning retries at ~5 min (30 × 10s) instead of the
+          # default 1 hour. A persistent 412 won't self-heal; fail fast.
+          create_wait: '30'
           image: ${{ vars.HETZNER_RUNNER_SNAPSHOT_ID || 'ubuntu-24.04' }}
           # Fallback baseline install if the snapshot var isn't set yet.
           # The snapshot bake removes this branch in steady state.
@@ -142,7 +187,14 @@ jobs:
               apt-get update
               apt-get install -y \
                 openjdk-17-jdk-headless openjdk-21-jdk-headless \
-                maven git curl wget jq unzip make ca-certificates
+                maven git curl wget jq unzip make ca-certificates \
+                build-essential zlib1g-dev
+              # build-essential (gcc + binutils + libc6-dev) and zlib1g-dev
+              # are required by GraalVM `native-image` when it links the
+              # static binary. Without them the native-maven-plugin fails
+              # with "Default native-compiler executable 'gcc' not found".
+              # Once promptLM/.github#36 bakes them into the snapshot this
+              # line becomes redundant.
               curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
               apt-get install -y nodejs
               npm install -g pnpm yarn
@@ -153,7 +205,11 @@ jobs:
     needs: [decide, provision-runner]
     if: needs.decide.outputs.run == 'true'
     runs-on: ${{ needs.provision-runner.outputs.label }}
-    timeout-minutes: 60
+    # Bumped from 60 to accommodate the cold native-image build on the
+    # fallback (non-snapshot) image. Drop back to 60 once
+    # promptLM/.github#36 bakes GraalVM + Playwright browsers into the
+    # snapshot.
+    timeout-minutes: 90
     permissions:
       contents: read
       packages: read
@@ -186,8 +242,91 @@ jobs:
       - name: Build promptLM Framework
         run: mvn -B -DskipTests install
 
-      - name: Run Acceptance Tests
-        run: mvn -B -f acceptance-tests/pom.xml -Dpromptlm.bootstrap.skip=true test
+      # Install native-image toolchain deps and the system Chrome
+      # binary that PlaywrightSession launches via `channel: 'chrome'`.
+      # The pre_runner_script in provision-runner already lists native-image
+      # deps, but the org-baked snapshot referenced by
+      # HETZNER_RUNNER_SNAPSHOT_ID predates that edit and the
+      # `command -v docker` gate skips the install block on warm snapshots.
+      # Chrome is added here so HappyPathUserJourneyTest and the new
+      # LifecyclePipelineTest can launch Playwright sessions. Both
+      # become redundant once .github#36 bakes them into the snapshot.
+      - name: Install native-image toolchain (gcc, zlib) + Chrome
+        if: needs.decide.outputs.profile == 'full'
+        run: |
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y build-essential zlib1g-dev wget gnupg
+          # Google Chrome stable — the channel PlaywrightSession launches.
+          # Adding Google's apt source rather than `chromium-browser` so
+          # the binary lands at /opt/google/chrome/chrome (the path the
+          # Playwright `channel: 'chrome'` launcher hardcodes).
+          if ! command -v google-chrome >/dev/null 2>&1; then
+            wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub \
+              | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg
+            echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" \
+              > /etc/apt/sources.list.d/google-chrome.list
+            apt-get update
+            apt-get install -y google-chrome-stable
+          fi
+          google-chrome --version
+
+      # Swap JAVA_HOME to GraalVM CE 25 before the native build. We use
+      # `graalvm/setup-graalvm` rather than `actions/setup-java` because
+      # the latter's `distribution: graalvm` resolves to Oracle GraalVM
+      # (commercially branded redistribution), which is known to crash
+      # in SerializationFeature on Spring Boot 4 classpath shapes
+      # (NoClassDefFoundError inside com.oracle.svm.hosted.reflect.serialize).
+      # CE 25.x is what `build-full.sh` uses locally and what the release
+      # pipeline (release-java-ghpackages.yml in promptLM/.github) ships
+      # binaries with, so this aligns acceptance-CI with both.
+      # When promptLM/.github#36 lands a snapshot with native-image
+      # pre-installed, this step can be removed.
+      - name: Set up GraalVM CE 25 for native-image
+        if: needs.decide.outputs.profile == 'full'
+        uses: graalvm/setup-graalvm@329c42c5f4c343bceb505f0b28cc8499bc2bf174  # v1.5.4
+        with:
+          java-version: '25'
+          distribution: 'graalvm-community'
+          cache: 'maven'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Native binaries are only needed for the `native-acceptance` group,
+      # which runs in the `full` profile. We build them on the same VM as
+      # the tests so the binary SHA stays coherent with the source tree.
+      - name: Build native binaries
+        if: needs.decide.outputs.profile == 'full'
+        run: >
+          mvn -B -Pnative
+          -pl apps/promptlm-cli,apps/promptlm-webapp -am
+          -DskipTests package
+
+      - name: Run acceptance tests (smoke profile)
+        if: needs.decide.outputs.profile == 'smoke'
+        run: >
+          mvn -B -f acceptance-tests/pom.xml
+          -Dpromptlm.bootstrap.skip=true
+          -Dpromptlm.test.groups=integration,native-smoke
+          -Dpromptlm.test.excludedGroups=
+          test
+
+      - name: Run acceptance tests (full profile)
+        if: needs.decide.outputs.profile == 'full'
+        env:
+          # PLAYWRIGHT_BROWSERS_PATH: set this once promptLM/.github#36 lands a snapshot
+          # with chromium pre-installed. Until then the in-pom playwright install step
+          # handles it on the fly.
+          CLI_NATIVE: ${{ github.workspace }}/apps/promptlm-cli/target/promptlm-cli
+          WEBAPP_NATIVE: ${{ github.workspace }}/apps/promptlm-webapp/target/promptlm-webapp
+        run: >
+          mvn -B -f acceptance-tests/pom.xml
+          -Dpromptlm.bootstrap.skip=true
+          -Dpromptlm.test.groups=integration,native-smoke,native-acceptance
+          -Dpromptlm.test.excludedGroups=
+          -Dpromptlm.test.cli.native.path=$CLI_NATIVE
+          -Dpromptlm.test.webapp.native.path=$WEBAPP_NATIVE
+          -Dpromptlm.test.requireNativeBinaries=true
+          test
 
       - name: Upload Acceptance Test Artifacts
         if: failure()
@@ -199,7 +338,9 @@ jobs:
             acceptance-tests/target/surefire-reports/**
             acceptance-tests/target/screenshots/**
             acceptance-tests/target/traces/**
-          retention-days: 1
+            acceptance-tests/target/diagnostics/**
+            acceptance-tests/target/snapshots/**
+          retention-days: 7
 
   teardown-runner:
     name: Teardown Hetzner runner

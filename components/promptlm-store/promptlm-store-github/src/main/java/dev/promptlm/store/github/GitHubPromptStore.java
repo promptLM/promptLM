@@ -793,7 +793,45 @@ public class GitHubPromptStore implements PromptStore {
         v.setTag(tag);
         v.setVersion(releaseVersion);
 
+        upsertPromptEntry(metadataFile, picked, releaseVersion);
+
         repositoryMetadata.write(repoPath, metadataFile);
+    }
+
+    /**
+     * Keeps {@code .promptlm/metadata.json}'s {@code prompts} array in step with
+     * the release. The template seeds this array empty and {@code versions} was
+     * previously the only branch of the file the release path maintained, so
+     * every published bundle shipped {@code "prompts": []} — see the
+     * bundle-release contract in {@code docs/release-classes.md}, which requires
+     * each released prompt to be listed with id / name / group / version / file /
+     * status. {@code tools/release/build-artifacts} copies this file into the jar
+     * verbatim rather than regenerating it, so whatever is written here is what
+     * consumers of the bundle read.
+     */
+    private void upsertPromptEntry(GitRepositoryMetadataFile metadataFile, PromptSpec picked, String releaseVersion) {
+        List<GitRepositoryMetadataFile.Prompt> prompts = metadataFile.getPrompts();
+
+        GitRepositoryMetadataFile.Prompt entry = prompts.stream()
+                .filter(p -> Objects.equals(p.getId(), picked.getId()))
+                .findFirst()
+                .orElseGet(() -> {
+                    GitRepositoryMetadataFile.Prompt created = new GitRepositoryMetadataFile.Prompt();
+                    prompts.add(created);
+                    return created;
+                });
+
+        entry.setId(picked.getId());
+        entry.setName(picked.getName());
+        entry.setGroup(picked.getGroup());
+        entry.setVersion(releaseVersion);
+        entry.setDescription(picked.getDescription());
+        entry.setFile(picked.getPath() == null ? null : picked.getPath().toString().replace('\\', '/'));
+        entry.setStatus(picked.getStatus() == null
+                ? PromptSpec.PromptStatus.ACTIVE.name().toLowerCase(Locale.ROOT)
+                : picked.getStatus().name().toLowerCase(Locale.ROOT));
+        entry.setCreated(picked.getCreatedAt() == null ? null : picked.getCreatedAt().toString());
+        entry.setUpdated(picked.getUpdatedAt() == null ? null : picked.getUpdatedAt().toString());
     }
 
     private GitRepositoryMetadataFile.Version newVersion(List<GitRepositoryMetadataFile.Version> versions) {

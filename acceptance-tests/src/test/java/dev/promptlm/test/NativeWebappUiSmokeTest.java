@@ -180,7 +180,11 @@ class NativeWebappUiSmokeTest {
         navigateToPath("/prompts");
         page.waitForSelector("text=" + PROMPT_NAME);
 
-        // Verify the prompt YAML was actually pushed to Gitea's development branch.
+        // Verify the prompt YAML was actually pushed to Gitea's development
+        // branch. Saving triggers an LLM execution and the push is chained to
+        // that execution succeeding, so this only passes with a working
+        // OPENAI_API_KEY — which is why PromptWorkflowHelper selects the
+        // openai vendor.
         await()
                 .atMost(Duration.ofMinutes(2))
                 .pollInterval(Duration.ofSeconds(1))
