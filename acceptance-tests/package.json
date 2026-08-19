@@ -10,7 +10,7 @@
     "@promptlm/api-client": "file:../components/promptlm-api-client"
   },
   "devDependencies": {
-    "@playwright/test": "^1.55.1",
+    "@playwright/test": "^1.62.1",
     "@types/node": "^20.0.0",
     "typescript": "^5.4.0"
   }
