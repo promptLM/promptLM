@@ -36,7 +36,7 @@
     "@mui/icons-material": "^6.5.0",
     "@mui/material": "^6.5.0",
     "react-day-picker": "^8.10.1",
-    "vaul": "^0.9.9",
+    "vaul": "^1.1.2",
     "clsx": "^2.1.0",
     "react": "^18.2.0 || ^19.0.0",
     "react-dom": "^18.2.0 || ^19.0.0",
@@ -61,7 +61,7 @@
     "react-day-picker": "^8.10.1",
     "react-dom": "^19.0.0",
     "react-is": "^19.2.0",
-    "vaul": "^0.9.9",
+    "vaul": "^1.1.2",
     "storybook": "^8.2.6"
   }
 }
